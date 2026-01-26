@@ -30,6 +30,7 @@ DEFAULT_API_HISTORY_RETENTION_DAYS = 14  # 0 = keep forever
 DEFAULT_HOT_WATER_TIMER_DURATION = 60  # minutes
 DEFAULT_REFRESH_DEBOUNCE_SECONDS = 15  # v1.6.1: Debounce delay for immediate refresh
 DEFAULT_SCHEDULE_CALENDAR_ENABLED = False  # v1.8.0: Schedule Calendar (opt-in)
+DEFAULT_SMART_HEATING_ENABLED = False  # v1.9.0: Smart Heating analytics (opt-in)
 
 # Validation constants
 MIN_HOUR = 0
@@ -382,6 +383,17 @@ class ConfigurationManager:
             True if Schedule Calendar should be created, False otherwise
         """
         return self._options.get('schedule_calendar_enabled', DEFAULT_SCHEDULE_CALENDAR_ENABLED)
+    
+    def get_smart_heating_enabled(self) -> bool:
+        """Check if Smart Heating analytics is enabled.
+        
+        v1.9.0: Opt-in feature providing heating/cooling rate sensors,
+        time-to-target estimation, and comfort risk alerts.
+        
+        Returns:
+            True if Smart Heating sensors should be created, False otherwise
+        """
+        return self._options.get('smart_heating_enabled', DEFAULT_SMART_HEATING_ENABLED)
     
     def sync_all_to_config_json(self) -> None:
         """Sync all configuration values to config.json for tado_api.py to read.

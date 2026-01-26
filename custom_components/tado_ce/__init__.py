@@ -1147,6 +1147,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         platforms_to_load.append(CALENDAR_PLATFORM)
         _LOGGER.info("Tado CE: Schedule Calendar enabled")
     
+    # v1.9.0: Initialize Smart Heating Manager if enabled (opt-in)
+    if config_manager.get_smart_heating_enabled():
+        from .smart_heating import get_smart_heating_manager
+        smart_heating_manager = get_smart_heating_manager()
+        smart_heating_manager.enable()
+        hass.data[DOMAIN]['smart_heating_manager'] = smart_heating_manager
+        _LOGGER.info("Tado CE: Smart Heating Analytics enabled")
+    
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
     
     # Register services

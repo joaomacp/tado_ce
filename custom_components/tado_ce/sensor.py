@@ -118,6 +118,13 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoTargetTempSensor(zone_id, zone_name, zone_type),
                         TadoOverlaySensor(zone_id, zone_name, zone_type),
                     ])
+                    # v1.9.0: Smart Heating sensors (opt-in)
+                    if config_manager.get_smart_heating_enabled():
+                        sensors.extend([
+                            TadoHeatingRateSensor(zone_id, zone_name, zone_type),
+                            TadoCoolingRateSensor(zone_id, zone_name, zone_type),
+                            TadoTimeToTargetSensor(zone_id, zone_name, zone_type),
+                        ])
                 elif zone_type == 'AIR_CONDITIONING':
                     sensors.extend([
                         TadoTemperatureSensor(zone_id, zone_name, zone_type),
@@ -126,6 +133,13 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoTargetTempSensor(zone_id, zone_name, zone_type),
                         TadoOverlaySensor(zone_id, zone_name, zone_type),
                     ])
+                    # v1.9.0: Smart Heating sensors for AC (opt-in)
+                    if config_manager.get_smart_heating_enabled():
+                        sensors.extend([
+                            TadoHeatingRateSensor(zone_id, zone_name, zone_type),
+                            TadoCoolingRateSensor(zone_id, zone_name, zone_type),
+                            TadoTimeToTargetSensor(zone_id, zone_name, zone_type),
+                        ])
                 elif zone_type == 'HOT_WATER':
                     # Only create temperature sensor if zone has temperature data
                     # Many hot water zones (combi boilers) don't have temperature sensors
@@ -1150,4 +1164,175 @@ class TadoDeviceConnectionSensor(SensorEntity):
                             return
             self._attr_available = False
         except Exception:
+            self._attr_available = False
+
+
+# ============ Smart Heating Sensors (v1.9.0) ============
+
+class TadoHeatingRateSensor(TadoBaseSensor):
+    """Heating rate sensor - shows °C/hour when HVAC is active.
+    
+    For HEATING zones: Rate of temperature increase when heating.
+    For AC zones: Rate of temperature change when AC is running.
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Heating Rate"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_heating_rate"
+        self._attr_native_unit_of_measurement = "°C/h"
+        self._attr_icon = "mdi:thermometer-chevron-up"
+        self._attr_state_class = "measurement"
+        self._data_points = 0
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "data_points": self._data_points,
+            "zone_type": self._zone_type,
+        }
+    
+    def update(self):
+        """Update heating rate from SmartHeatingManager."""
+        try:
+            from .smart_heating import get_smart_heating_manager
+            manager = get_smart_heating_manager()
+            
+            if not manager.is_enabled:
+                self._attr_available = False
+                return
+            
+            rate = manager.get_heating_rate(self._zone_id)
+            if rate is not None:
+                self._attr_native_value = rate
+                self._attr_available = True
+                # Get data points count
+                zone = manager.get_zone(self._zone_id)
+                heating_readings = [r for r in zone.readings if r.is_heating]
+                self._data_points = len(heating_readings)
+            else:
+                self._attr_native_value = None
+                self._attr_available = False
+                self._data_points = 0
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update heating rate for zone {self._zone_id}: {e}")
+            self._attr_available = False
+
+
+class TadoCoolingRateSensor(TadoBaseSensor):
+    """Cooling rate sensor - shows °C/hour when HVAC is off.
+    
+    For HEATING zones: Rate of temperature decrease when heating is off (heat loss).
+    For AC zones: Rate of temperature change when AC is off.
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Cooling Rate"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_cooling_rate"
+        self._attr_native_unit_of_measurement = "°C/h"
+        self._attr_icon = "mdi:thermometer-chevron-down"
+        self._attr_state_class = "measurement"
+        self._data_points = 0
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "data_points": self._data_points,
+            "zone_type": self._zone_type,
+        }
+    
+    def update(self):
+        """Update cooling rate from SmartHeatingManager."""
+        try:
+            from .smart_heating import get_smart_heating_manager
+            manager = get_smart_heating_manager()
+            
+            if not manager.is_enabled:
+                self._attr_available = False
+                return
+            
+            rate = manager.get_cooling_rate(self._zone_id)
+            if rate is not None:
+                self._attr_native_value = rate
+                self._attr_available = True
+                # Get data points count
+                zone = manager.get_zone(self._zone_id)
+                cooling_readings = [r for r in zone.readings if not r.is_heating]
+                self._data_points = len(cooling_readings)
+            else:
+                self._attr_native_value = None
+                self._attr_available = False
+                self._data_points = 0
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update cooling rate for zone {self._zone_id}: {e}")
+            self._attr_available = False
+
+
+class TadoTimeToTargetSensor(TadoBaseSensor):
+    """Time to target sensor - estimated minutes to reach target temperature."""
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Time to Target"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_time_to_target"
+        self._attr_native_unit_of_measurement = "min"
+        self._attr_icon = "mdi:timer-outline"
+        self._current_temp = None
+        self._target_temp = None
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "current_temperature": self._current_temp,
+            "target_temperature": self._target_temp,
+            "zone_type": self._zone_type,
+        }
+    
+    def update(self):
+        """Update time to target from SmartHeatingManager."""
+        try:
+            from .smart_heating import get_smart_heating_manager
+            manager = get_smart_heating_manager()
+            
+            if not manager.is_enabled:
+                self._attr_available = False
+                return
+            
+            # Get current and target temperature from zone data
+            zone_data = self._get_zone_data()
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            # Current temperature
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            self._current_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            
+            # Target temperature
+            setting = zone_data.get('setting') or {}
+            if setting.get('power') == 'ON':
+                self._target_temp = (setting.get('temperature') or {}).get('celsius')
+            else:
+                self._target_temp = None
+            
+            # Calculate time to target
+            if self._current_temp is not None and self._target_temp is not None:
+                minutes = manager.get_time_to_target(
+                    self._zone_id,
+                    self._current_temp,
+                    self._target_temp
+                )
+                if minutes is not None:
+                    self._attr_native_value = minutes
+                    self._attr_available = True
+                else:
+                    self._attr_native_value = None
+                    self._attr_available = False
+            else:
+                self._attr_native_value = None
+                self._attr_available = False
+                
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update time to target for zone {self._zone_id}: {e}")
             self._attr_available = False

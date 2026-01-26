@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.core import HomeAssistant
 
-from .const import ZONES_FILE, ZONES_INFO_FILE
+from .const import DOMAIN, ZONES_FILE, ZONES_INFO_FILE
 from .device_manager import get_hub_device_info, get_zone_device_info
 from .data_loader import load_zones_file, load_zones_info_file, get_zone_names
 
@@ -22,6 +22,10 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     _LOGGER.debug("Tado CE binary_sensor: Setting up...")
     zone_names = await hass.async_add_executor_job(get_zone_names)
     zones_info = await hass.async_add_executor_job(load_zones_info_file)
+    
+    # Get configuration manager from hass data
+    from .config_manager import ConfigurationManager
+    config_manager = ConfigurationManager(entry)
     
     sensors = []
     
@@ -40,6 +44,11 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                 owd = zone.get('openWindowDetection') or {}
                 if owd.get('supported', False):
                     sensors.append(TadoOpenWindowSensor(zone_id, zone_name, zone_type))
+            
+            # v1.9.0: Smart Heating - Comfort at Risk sensor (opt-in)
+            if config_manager.get_smart_heating_enabled():
+                if zone_type in ('HEATING', 'AIR_CONDITIONING'):
+                    sensors.append(TadoComfortAtRiskSensor(zone_id, zone_name, zone_type))
     
     async_add_entities(sensors, True)
     _LOGGER.info(f"Tado CE binary sensors loaded: {len(sensors)}")
@@ -131,4 +140,142 @@ class TadoOpenWindowSensor(BinarySensorEntity):
                 
                 self._attr_available = True
         except Exception:
+            self._attr_available = False
+
+
+# ============ Smart Heating Binary Sensors (v1.9.0) ============
+
+class TadoComfortAtRiskSensor(BinarySensorEntity):
+    """Binary sensor indicating if comfort target is at risk of being missed.
+    
+    Uses SmartHeatingManager to predict if the zone will reach target temperature
+    before the next schedule change. Useful for early warning when heating/cooling
+    may not be sufficient.
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._attr_name = f"{zone_name} Comfort at Risk"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_comfort_at_risk"
+        self._attr_device_class = BinarySensorDeviceClass.PROBLEM
+        self._attr_available = False
+        self._attr_is_on = None
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        
+        # Extra attributes
+        self._current_temp = None
+        self._target_temp = None
+        self._predicted_temp = None
+        self._minutes_until_schedule = None
+        self._is_heating = None
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "current_temperature": self._current_temp,
+            "target_temperature": self._target_temp,
+            "predicted_temperature": self._predicted_temp,
+            "minutes_until_schedule": self._minutes_until_schedule,
+            "is_heating": self._is_heating,
+            "zone_type": self._zone_type,
+        }
+    
+    def update(self):
+        """Update comfort at risk status from SmartHeatingManager."""
+        try:
+            from .smart_heating import get_smart_heating_manager
+            from datetime import datetime
+            
+            manager = get_smart_heating_manager()
+            
+            if not manager.is_enabled:
+                self._attr_available = False
+                return
+            
+            # Get zone data
+            with open(ZONES_FILE) as f:
+                data = json.load(f)
+                zone_states = data.get('zoneStates') or {}
+                zone_data = zone_states.get(self._zone_id)
+            
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            # Current temperature
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            self._current_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            
+            # Target temperature
+            setting = zone_data.get('setting') or {}
+            if setting.get('power') == 'ON':
+                self._target_temp = (setting.get('temperature') or {}).get('celsius')
+            else:
+                self._target_temp = None
+            
+            # Is heating/cooling active?
+            activity_data = zone_data.get('activityDataPoints') or {}
+            if self._zone_type == 'HEATING':
+                heating_power = (activity_data.get('heatingPower') or {}).get('percentage', 0)
+                self._is_heating = heating_power > 0
+            else:
+                # AC zone
+                ac_power = (activity_data.get('acPower') or {}).get('value')
+                self._is_heating = ac_power == 'ON'
+            
+            # Next schedule change
+            next_change = zone_data.get('nextScheduleChange')
+            if next_change and next_change.get('start'):
+                try:
+                    next_time = datetime.fromisoformat(next_change['start'].replace('Z', '+00:00'))
+                    now = datetime.now(next_time.tzinfo)
+                    self._minutes_until_schedule = int((next_time - now).total_seconds() / 60)
+                    
+                    # Get target from next schedule
+                    next_setting = next_change.get('setting') or {}
+                    if next_setting.get('power') == 'ON':
+                        next_target = (next_setting.get('temperature') or {}).get('celsius')
+                        if next_target:
+                            self._target_temp = next_target
+                except Exception:
+                    self._minutes_until_schedule = None
+            else:
+                self._minutes_until_schedule = None
+            
+            # Check if we have enough data to predict
+            if (self._current_temp is None or 
+                self._target_temp is None or 
+                self._minutes_until_schedule is None or
+                self._minutes_until_schedule <= 0):
+                self._attr_is_on = None
+                self._attr_available = False
+                return
+            
+            # Get prediction
+            zone = manager.get_zone(self._zone_id)
+            self._predicted_temp = zone.predict_temperature(
+                self._minutes_until_schedule, 
+                self._is_heating
+            )
+            
+            # Check if comfort is at risk
+            at_risk = manager.is_comfort_at_risk(
+                self._zone_id,
+                self._current_temp,
+                self._target_temp,
+                self._minutes_until_schedule,
+                self._is_heating
+            )
+            
+            if at_risk is not None:
+                self._attr_is_on = at_risk
+                self._attr_available = True
+            else:
+                self._attr_is_on = None
+                self._attr_available = False
+                
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update comfort at risk for zone {self._zone_id}: {e}")
             self._attr_available = False
