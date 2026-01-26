@@ -10,9 +10,14 @@ from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -411,6 +416,13 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                     if key in advanced:
                         processed_input[key] = advanced[key]
             
+            # Flatten smart_heating_settings section
+            if 'smart_heating_settings' in user_input:
+                smart_heating = user_input['smart_heating_settings']
+                for key in ['outdoor_temp_entity', 'weather_compensation', 'use_feels_like']:
+                    if key in smart_heating:
+                        processed_input[key] = smart_heating[key]
+            
             # Handle custom day interval
             day_interval_str = processed_input.get('custom_day_interval', '')
             if isinstance(day_interval_str, str):
@@ -481,6 +493,28 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('custom_night_interval', default=str(custom_night_interval) if custom_night_interval else ""): TextSelector(
                             TextSelectorConfig(type=TextSelectorType.TEXT)
                         ),
+                    }),
+                    {"collapsed": True},
+                ),
+                
+                # === Smart Heating Settings (collapsed) ===
+                vol.Required("smart_heating_settings"): data_entry_flow.section(
+                    vol.Schema({
+                        vol.Optional('outdoor_temp_entity', default=options.get('outdoor_temp_entity', '')): EntitySelector(
+                            EntitySelectorConfig(domain="sensor", device_class="temperature")
+                        ),
+                        vol.Optional('weather_compensation', default=options.get('weather_compensation', 'none')): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    {"value": "none", "label": "None"},
+                                    {"value": "light", "label": "Light"},
+                                    {"value": "moderate", "label": "Moderate"},
+                                    {"value": "aggressive", "label": "Aggressive"},
+                                ],
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
+                        vol.Optional('use_feels_like', default=options.get('use_feels_like', False)): BooleanSelector(),
                     }),
                     {"collapsed": True},
                 ),

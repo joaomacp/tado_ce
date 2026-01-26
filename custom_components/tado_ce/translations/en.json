@@ -88,6 +88,19 @@
               "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)"
             }
           },
+          "smart_heating_settings": {
+            "name": "Smart Heating Settings",
+            "data": {
+              "outdoor_temp_entity": "Outdoor Temperature Entity",
+              "weather_compensation": "Weather Compensation",
+              "use_feels_like": "Use Feels-Like Temperature"
+            },
+            "data_description": {
+              "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home, sensor.outdoor_temperature)",
+              "weather_compensation": "Adjust heating rate predictions based on outdoor temperature. Light: subtle adjustment, Moderate: balanced, Aggressive: strong adjustment",
+              "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature for weather compensation"
+            }
+          },
           "advanced_settings": {
             "name": "Advanced Settings",
             "data": {

@@ -1280,12 +1280,16 @@ class TadoTimeToTargetSensor(TadoBaseSensor):
         self._attr_icon = "mdi:timer-outline"
         self._current_temp = None
         self._target_temp = None
+        self._outdoor_temp = None
+        self._weather_compensation = "none"
     
     @property
     def extra_state_attributes(self):
         return {
             "current_temperature": self._current_temp,
             "target_temperature": self._target_temp,
+            "outdoor_temperature": self._outdoor_temp,
+            "weather_compensation": self._weather_compensation,
             "zone_type": self._zone_type,
         }
     
@@ -1298,6 +1302,10 @@ class TadoTimeToTargetSensor(TadoBaseSensor):
             if not manager.is_enabled:
                 self._attr_available = False
                 return
+            
+            # Get weather compensation info
+            self._outdoor_temp = manager.get_outdoor_temperature()
+            self._weather_compensation = manager._weather_compensation
             
             # Get current and target temperature from zone data
             zone_data = self._get_zone_data()
@@ -1318,11 +1326,19 @@ class TadoTimeToTargetSensor(TadoBaseSensor):
             
             # Calculate time to target
             if self._current_temp is not None and self._target_temp is not None:
-                minutes = manager.get_time_to_target(
+                # Use weather-compensated time if available
+                minutes = manager.get_compensated_time_to_target(
                     self._zone_id,
                     self._current_temp,
                     self._target_temp
                 )
+                # Fallback to non-compensated if compensation not configured
+                if minutes is None:
+                    minutes = manager.get_time_to_target(
+                        self._zone_id,
+                        self._current_temp,
+                        self._target_temp
+                    )
                 if minutes is not None:
                     self._attr_native_value = minutes
                     self._attr_available = True

@@ -1151,7 +1151,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if config_manager.get_smart_heating_enabled():
         from .smart_heating import get_smart_heating_manager
         smart_heating_manager = get_smart_heating_manager()
+        smart_heating_manager._hass = hass  # Set hass reference for weather entity access
         smart_heating_manager.enable()
+        
+        # Configure weather compensation (Phase 3)
+        outdoor_temp_entity = config_manager.get_outdoor_temp_entity()
+        weather_compensation = config_manager.get_weather_compensation()
+        use_feels_like = config_manager.get_use_feels_like()
+        
+        if outdoor_temp_entity:
+            smart_heating_manager.configure_weather(
+                outdoor_temp_entity=outdoor_temp_entity,
+                weather_compensation=weather_compensation,
+                use_feels_like=use_feels_like
+            )
+        
         hass.data[DOMAIN]['smart_heating_manager'] = smart_heating_manager
         _LOGGER.info("Tado CE: Smart Heating Analytics enabled")
     

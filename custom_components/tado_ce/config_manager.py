@@ -31,6 +31,17 @@ DEFAULT_HOT_WATER_TIMER_DURATION = 60  # minutes
 DEFAULT_REFRESH_DEBOUNCE_SECONDS = 15  # v1.6.1: Debounce delay for immediate refresh
 DEFAULT_SCHEDULE_CALENDAR_ENABLED = False  # v1.8.0: Schedule Calendar (opt-in)
 DEFAULT_SMART_HEATING_ENABLED = False  # v1.9.0: Smart Heating analytics (opt-in)
+DEFAULT_OUTDOOR_TEMP_ENTITY = ""  # v1.9.0: Outdoor temperature entity for weather compensation
+DEFAULT_WEATHER_COMPENSATION = "none"  # v1.9.0: Weather compensation preset
+DEFAULT_USE_FEELS_LIKE = False  # v1.9.0: Use feels-like temperature instead of actual
+
+# Weather compensation presets: (cold_threshold, cold_factor, warm_threshold, warm_factor)
+WEATHER_COMPENSATION_PRESETS = {
+    "none": (None, 1.0, None, 1.0),
+    "light": (5, 1.1, 15, 0.95),
+    "moderate": (5, 1.2, 10, 0.9),
+    "aggressive": (0, 1.4, 10, 0.8),
+}
 
 # Validation constants
 MIN_HOUR = 0
@@ -394,6 +405,38 @@ class ConfigurationManager:
             True if Smart Heating sensors should be created, False otherwise
         """
         return self._options.get('smart_heating_enabled', DEFAULT_SMART_HEATING_ENABLED)
+    
+    def get_outdoor_temp_entity(self) -> str:
+        """Get the outdoor temperature entity for weather compensation.
+        
+        v1.9.0: User-configured entity for outdoor temperature.
+        Can be Tado weather, WeatherUnderground, AccuWeather, Tomorrow.io, etc.
+        
+        Returns:
+            Entity ID string, or empty string if not configured
+        """
+        return self._options.get('outdoor_temp_entity', DEFAULT_OUTDOOR_TEMP_ENTITY)
+    
+    def get_weather_compensation(self) -> str:
+        """Get the weather compensation preset.
+        
+        v1.9.0: Adjusts heating/cooling rate predictions based on outdoor temp.
+        
+        Returns:
+            Preset name: 'none', 'light', 'moderate', or 'aggressive'
+        """
+        return self._options.get('weather_compensation', DEFAULT_WEATHER_COMPENSATION)
+    
+    def get_use_feels_like(self) -> bool:
+        """Check if feels-like temperature should be used.
+        
+        v1.9.0: Uses feels-like (apparent) temperature instead of actual
+        for weather compensation calculations.
+        
+        Returns:
+            True to use feels-like temperature, False for actual temperature
+        """
+        return self._options.get('use_feels_like', DEFAULT_USE_FEELS_LIKE)
     
     def sync_all_to_config_json(self) -> None:
         """Sync all configuration values to config.json for tado_api.py to read.

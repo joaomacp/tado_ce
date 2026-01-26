@@ -53,6 +53,20 @@
       "init": {
         "title": "Tado CE Options",
         "description": "Configure Tado CE integration settings.",
+        "sections": {
+          "features": {
+            "name": "Features"
+          },
+          "polling_schedule": {
+            "name": "Polling Schedule"
+          },
+          "smart_heating_settings": {
+            "name": "Smart Heating Settings"
+          },
+          "advanced_settings": {
+            "name": "Advanced Settings"
+          }
+        },
         "data": {
           "weather_enabled": "Enable Weather Sensors",
           "mobile_devices_enabled": "Enable Mobile Device Tracking",
@@ -67,7 +81,11 @@
           "night_start_hour": "Night Start Hour",
           "custom_day_interval": "Custom Day Polling Interval (minutes)",
           "custom_night_interval": "Custom Night Polling Interval (minutes)",
-          "hot_water_timer_duration": "Hot Water Timer Duration (minutes)"
+          "hot_water_timer_duration": "Hot Water Timer Duration (minutes)",
+          "refresh_debounce_seconds": "Refresh Debounce (seconds)",
+          "outdoor_temp_entity": "Outdoor Temperature Entity",
+          "weather_compensation": "Weather Compensation",
+          "use_feels_like": "Use Feels-Like Temperature"
         },
         "data_description": {
           "weather_enabled": "Get outside temperature and solar intensity (+1 API call per quick sync)",
@@ -83,7 +101,10 @@
           "night_start_hour": "Hour when night period starts (0-23, default: 23)",
           "custom_day_interval": "Override smart polling for daytime (1-1440 minutes, leave empty for auto)",
           "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)",
-          "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)"
+          "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
+          "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home, sensor.outdoor_temperature)",
+          "weather_compensation": "Adjust heating rate predictions based on outdoor temperature. Light: subtle adjustment, Moderate: balanced, Aggressive: strong adjustment",
+          "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature for weather compensation"
         }
       }
     },

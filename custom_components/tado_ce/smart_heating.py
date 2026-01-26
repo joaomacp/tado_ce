@@ -4,15 +4,20 @@ Provides intelligent heating analytics including:
 - Temperature rate calculation (heating/cooling rates)
 - Time to target estimation
 - Comfort risk prediction
+- Weather compensation (Phase 3)
 
 This module uses in-memory storage for temperature history,
 which means data is reset on HA restart. This is acceptable
 as the system will re-learn within 1-2 hours of operation.
 """
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,6 +25,14 @@ _LOGGER = logging.getLogger(__name__)
 HISTORY_WINDOW_HOURS = 2  # Keep 2 hours of history
 MIN_DATA_POINTS = 3  # Minimum points needed for rate calculation
 MIN_TIME_SPAN_MINUTES = 15  # Minimum time span for meaningful rate
+
+# Weather compensation presets: (cold_threshold, cold_factor, warm_threshold, warm_factor)
+WEATHER_COMPENSATION_PRESETS = {
+    "none": (None, 1.0, None, 1.0),
+    "light": (5, 1.1, 15, 0.95),
+    "moderate": (5, 1.2, 10, 0.9),
+    "aggressive": (0, 1.4, 10, 0.8),
+}
 
 
 @dataclass
@@ -175,9 +188,36 @@ class ZoneHistory:
 class SmartHeatingManager:
     """Manages smart heating analytics for all zones."""
     
-    def __init__(self):
+    def __init__(self, hass: "HomeAssistant" = None):
         self._zones: dict[str, ZoneHistory] = {}
         self._enabled = False
+        self._hass = hass
+        # Weather compensation settings
+        self._outdoor_temp_entity: str = ""
+        self._weather_compensation: str = "none"
+        self._use_feels_like: bool = False
+    
+    def configure_weather(
+        self,
+        outdoor_temp_entity: str = "",
+        weather_compensation: str = "none",
+        use_feels_like: bool = False
+    ) -> None:
+        """Configure weather compensation settings.
+        
+        Args:
+            outdoor_temp_entity: Entity ID for outdoor temperature
+            weather_compensation: Preset name (none/light/moderate/aggressive)
+            use_feels_like: Whether to use feels-like temperature
+        """
+        self._outdoor_temp_entity = outdoor_temp_entity
+        self._weather_compensation = weather_compensation
+        self._use_feels_like = use_feels_like
+        _LOGGER.info(
+            f"Smart Heating: Weather compensation configured - "
+            f"entity={outdoor_temp_entity}, preset={weather_compensation}, "
+            f"feels_like={use_feels_like}"
+        )
     
     def enable(self) -> None:
         """Enable smart heating tracking."""
@@ -301,6 +341,9 @@ class SmartHeatingManager:
         return {
             "enabled": self._enabled,
             "zones_tracked": len(self._zones),
+            "weather_compensation": self._weather_compensation,
+            "outdoor_temp_entity": self._outdoor_temp_entity,
+            "use_feels_like": self._use_feels_like,
             "zones": {
                 zone_id: {
                     "name": zone.zone_name,
@@ -311,6 +354,220 @@ class SmartHeatingManager:
                 for zone_id, zone in self._zones.items()
             }
         }
+    
+    def get_outdoor_temperature(self) -> Optional[float]:
+        """Get current outdoor temperature from configured entity.
+        
+        Returns:
+            Outdoor temperature in °C, or None if not available
+        """
+        if not self._hass or not self._outdoor_temp_entity:
+            return None
+        
+        try:
+            state = self._hass.states.get(self._outdoor_temp_entity)
+            if state is None or state.state in ('unknown', 'unavailable'):
+                return None
+            
+            # Check if it's a weather entity (has temperature attribute)
+            if self._outdoor_temp_entity.startswith('weather.'):
+                temp = state.attributes.get('temperature')
+                if temp is not None:
+                    if self._use_feels_like:
+                        # Try to get feels-like from attributes
+                        feels_like = self._get_feels_like_from_weather(state)
+                        if feels_like is not None:
+                            return feels_like
+                    return float(temp)
+            else:
+                # Regular sensor entity
+                return float(state.state)
+        except (ValueError, TypeError) as e:
+            _LOGGER.debug(f"Failed to get outdoor temperature: {e}")
+            return None
+        
+        return None
+    
+    def _get_feels_like_from_weather(self, state) -> Optional[float]:
+        """Extract feels-like temperature from weather entity.
+        
+        Different weather integrations use different attribute names:
+        - AccuWeather: apparent_temperature
+        - PirateWeather: apparent_temperature
+        - OpenWeatherMap: feels_like
+        - Tomorrow.io: (calculate from temp/humidity/wind)
+        
+        Args:
+            state: Weather entity state object
+            
+        Returns:
+            Feels-like temperature, or None if not available
+        """
+        attrs = state.attributes
+        
+        # Try common attribute names
+        for attr_name in ['apparent_temperature', 'feels_like', 'feelslike']:
+            if attr_name in attrs and attrs[attr_name] is not None:
+                try:
+                    return float(attrs[attr_name])
+                except (ValueError, TypeError):
+                    continue
+        
+        # Calculate feels-like if we have temp, humidity, and wind
+        temp = attrs.get('temperature')
+        humidity = attrs.get('humidity')
+        wind_speed = attrs.get('wind_speed')
+        
+        if temp is not None and humidity is not None:
+            return self._calculate_feels_like(
+                float(temp),
+                float(humidity),
+                float(wind_speed) if wind_speed else 0
+            )
+        
+        return None
+    
+    def _calculate_feels_like(
+        self,
+        temp: float,
+        humidity: float,
+        wind_speed: float = 0
+    ) -> float:
+        """Calculate feels-like temperature.
+        
+        Uses wind chill for cold weather (≤10°C) and heat index for warm weather.
+        
+        Args:
+            temp: Temperature in °C
+            humidity: Relative humidity (0-100)
+            wind_speed: Wind speed in km/h (default 0)
+            
+        Returns:
+            Feels-like temperature in °C
+        """
+        # Wind chill for cold weather (≤10°C and wind > 4.8 km/h)
+        if temp <= 10 and wind_speed > 4.8:
+            # Wind chill formula (Environment Canada)
+            # T_wc = 13.12 + 0.6215*T - 11.37*V^0.16 + 0.3965*T*V^0.16
+            v_pow = wind_speed ** 0.16
+            feels_like = 13.12 + 0.6215 * temp - 11.37 * v_pow + 0.3965 * temp * v_pow
+            return round(feels_like, 1)
+        
+        # Heat index for warm weather (≥27°C)
+        if temp >= 27:
+            # Simplified heat index formula
+            # HI = -8.785 + 1.611*T + 2.339*RH - 0.146*T*RH - 0.012*T² - 0.016*RH² + 0.002*T²*RH + 0.001*T*RH² - 0.000002*T²*RH²
+            t = temp
+            rh = humidity
+            hi = (-8.785 + 1.611 * t + 2.339 * rh - 0.146 * t * rh 
+                  - 0.012 * t * t - 0.016 * rh * rh 
+                  + 0.002 * t * t * rh + 0.001 * t * rh * rh 
+                  - 0.000002 * t * t * rh * rh)
+            return round(hi, 1)
+        
+        # For moderate temperatures, just return actual temp
+        return temp
+    
+    def get_compensated_rate(self, base_rate: float, for_heating: bool = True) -> float:
+        """Apply weather compensation to a heating/cooling rate.
+        
+        Args:
+            base_rate: Base rate in °C/hour
+            for_heating: True for heating rate, False for cooling rate
+            
+        Returns:
+            Compensated rate in °C/hour
+        """
+        if self._weather_compensation == "none":
+            return base_rate
+        
+        outdoor_temp = self.get_outdoor_temperature()
+        if outdoor_temp is None:
+            return base_rate
+        
+        preset = WEATHER_COMPENSATION_PRESETS.get(
+            self._weather_compensation,
+            WEATHER_COMPENSATION_PRESETS["none"]
+        )
+        cold_thresh, cold_factor, warm_thresh, warm_factor = preset
+        
+        # For heating: cold weather = slower heating (more heat loss)
+        # For cooling: cold weather = faster cooling (more heat loss)
+        factor = 1.0
+        
+        if cold_thresh is not None and outdoor_temp < cold_thresh:
+            if for_heating:
+                # Cold weather: heating takes longer (divide by factor)
+                factor = 1.0 / cold_factor
+            else:
+                # Cold weather: cooling is faster (multiply by factor)
+                factor = cold_factor
+        elif warm_thresh is not None and outdoor_temp > warm_thresh:
+            if for_heating:
+                # Warm weather: heating is faster (multiply by factor)
+                factor = 1.0 / warm_factor
+            else:
+                # Warm weather: cooling is slower (divide by factor)
+                factor = warm_factor
+        
+        compensated = base_rate * factor
+        
+        _LOGGER.debug(
+            f"Weather compensation: outdoor={outdoor_temp}°C, "
+            f"preset={self._weather_compensation}, factor={factor:.2f}, "
+            f"base_rate={base_rate:.2f}, compensated={compensated:.2f}"
+        )
+        
+        return round(compensated, 2)
+    
+    def get_compensated_time_to_target(
+        self,
+        zone_id: str,
+        current_temp: float,
+        target_temp: float
+    ) -> Optional[int]:
+        """Get weather-compensated time to reach target in minutes.
+        
+        Args:
+            zone_id: Zone identifier
+            current_temp: Current temperature
+            target_temp: Target temperature
+            
+        Returns:
+            Estimated minutes to reach target with weather compensation
+        """
+        if zone_id not in self._zones:
+            return None
+        
+        zone = self._zones[zone_id]
+        diff = target_temp - current_temp
+        
+        if abs(diff) < 0.1:
+            return 0  # Already at target
+        
+        # Get base rate
+        if diff > 0:
+            base_rate = zone.get_heating_rate()
+            for_heating = True
+        else:
+            base_rate = zone.get_cooling_rate()
+            for_heating = False
+        
+        if base_rate is None or abs(base_rate) < 0.01:
+            return None
+        
+        # Apply weather compensation
+        compensated_rate = self.get_compensated_rate(base_rate, for_heating)
+        
+        if abs(compensated_rate) < 0.01:
+            return None
+        
+        # Time = distance / speed
+        hours = abs(diff) / abs(compensated_rate)
+        minutes = int(hours * 60)
+        
+        # Cap at reasonable maximum (8 hours)
+        return min(minutes, 480)
 
 
 # Global instance
