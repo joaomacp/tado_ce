@@ -5,10 +5,10 @@ Provides intelligent heating analytics including:
 - Time to target estimation
 - Comfort risk prediction
 - Weather compensation (Phase 3)
+- Recorder integration for historical data (Phase 3)
 
-This module uses in-memory storage for temperature history,
-which means data is reset on HA restart. This is acceptable
-as the system will re-learn within 1-2 hours of operation.
+This module can bootstrap from HA recorder history on startup,
+allowing immediate rate calculations without waiting for data collection.
 """
 import logging
 import math
@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Configuration
-HISTORY_WINDOW_HOURS = 2  # Keep 2 hours of history
+HISTORY_WINDOW_HOURS = 2  # Keep 2 hours of history for real-time tracking
+RECORDER_HISTORY_HOURS = 24  # Load 24 hours from recorder on startup
 MIN_DATA_POINTS = 3  # Minimum points needed for rate calculation
 MIN_TIME_SPAN_MINUTES = 15  # Minimum time span for meaningful rate
 
@@ -580,3 +581,132 @@ def get_smart_heating_manager() -> SmartHeatingManager:
     if _manager is None:
         _manager = SmartHeatingManager()
     return _manager
+
+
+async def async_load_history_from_recorder(
+    hass: "HomeAssistant",
+    manager: SmartHeatingManager,
+    climate_entity_ids: list[str]
+) -> int:
+    """Load historical temperature data from HA recorder on startup.
+    
+    This allows immediate rate calculations without waiting for data collection.
+    Queries the last RECORDER_HISTORY_HOURS of climate entity history.
+    
+    Args:
+        hass: Home Assistant instance
+        manager: SmartHeatingManager to populate
+        climate_entity_ids: List of climate entity IDs to load history for
+        
+    Returns:
+        Number of data points loaded
+    """
+    if not climate_entity_ids:
+        return 0
+    
+    try:
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.history import get_significant_states
+        from homeassistant.util import dt as dt_util
+        
+        end_time = dt_util.utcnow()
+        start_time = end_time - timedelta(hours=RECORDER_HISTORY_HOURS)
+        
+        _LOGGER.info(
+            f"Smart Heating: Loading {RECORDER_HISTORY_HOURS}h history for "
+            f"{len(climate_entity_ids)} climate entities"
+        )
+        
+        # Query history from recorder (runs in executor to avoid blocking)
+        def _get_history():
+            return get_significant_states(
+                hass,
+                start_time,
+                end_time,
+                climate_entity_ids,
+                significant_changes_only=False
+            )
+        
+        states = await get_instance(hass).async_add_executor_job(_get_history)
+        
+        if not states:
+            _LOGGER.debug("Smart Heating: No history found in recorder")
+            return 0
+        
+        total_points = 0
+        
+        for entity_id, history in states.items():
+            if not history:
+                continue
+            
+            # Extract zone_id from entity_id (e.g., climate.master -> master)
+            # The actual zone_id will be set when climate entity registers
+            zone_id = entity_id.replace("climate.", "")
+            zone_name = zone_id.replace("_", " ").title()
+            
+            zone = manager.get_zone(zone_id, zone_name)
+            points_added = 0
+            
+            for state in history:
+                try:
+                    # Skip unavailable/unknown states
+                    if state.state in ('unavailable', 'unknown'):
+                        continue
+                    
+                    # Get current temperature from attributes
+                    attrs = state.attributes
+                    current_temp = attrs.get('current_temperature')
+                    
+                    if current_temp is None:
+                        continue
+                    
+                    # Determine if heating was active from hvac_action
+                    hvac_action = attrs.get('hvac_action', 'idle')
+                    is_heating = hvac_action in ('heating', 'cooling')
+                    
+                    # Get target temperature
+                    target_temp = attrs.get('temperature')
+                    
+                    # Get timestamp (ensure UTC)
+                    timestamp = state.last_changed
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.replace(tzinfo=dt_util.UTC)
+                    
+                    # Convert to local datetime for consistency with live readings
+                    local_timestamp = dt_util.as_local(timestamp)
+                    
+                    reading = TemperatureReading(
+                        timestamp=local_timestamp.replace(tzinfo=None),
+                        temperature=float(current_temp),
+                        is_heating=is_heating,
+                        target_temperature=float(target_temp) if target_temp else None
+                    )
+                    
+                    # Add directly to readings list (bypass add_reading to avoid pruning)
+                    zone.readings.append(reading)
+                    points_added += 1
+                    
+                except (ValueError, TypeError, AttributeError) as e:
+                    _LOGGER.debug(f"Smart Heating: Skipping invalid history state: {e}")
+                    continue
+            
+            # Sort readings by timestamp and prune old ones
+            zone.readings.sort(key=lambda r: r.timestamp)
+            zone._prune_old_readings()
+            
+            if points_added > 0:
+                _LOGGER.info(
+                    f"Smart Heating: Loaded {points_added} history points for {zone_name}, "
+                    f"{len(zone.readings)} after pruning"
+                )
+                total_points += len(zone.readings)
+        
+        _LOGGER.info(f"Smart Heating: Total {total_points} data points loaded from recorder")
+        return total_points
+        
+    except ImportError:
+        _LOGGER.debug("Smart Heating: Recorder component not available")
+        return 0
+    except Exception as e:
+        _LOGGER.warning(f"Smart Heating: Failed to load history from recorder: {e}")
+        return 0

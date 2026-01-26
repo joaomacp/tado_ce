@@ -1149,7 +1149,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # v1.9.0: Initialize Smart Heating Manager if enabled (opt-in)
     if config_manager.get_smart_heating_enabled():
-        from .smart_heating import get_smart_heating_manager
+        from .smart_heating import get_smart_heating_manager, async_load_history_from_recorder
         smart_heating_manager = get_smart_heating_manager()
         smart_heating_manager._hass = hass  # Set hass reference for weather entity access
         smart_heating_manager.enable()
@@ -1167,6 +1167,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         
         hass.data[DOMAIN]['smart_heating_manager'] = smart_heating_manager
+        
+        # Load historical data from recorder for immediate rate calculations
+        # Get climate entity IDs from zones_info
+        from .data_loader import load_zones_info_file
+        zones_info = await hass.async_add_executor_job(load_zones_info_file)
+        if zones_info:
+            climate_entity_ids = [
+                f"climate.{zone.get('name', '').lower().replace(' ', '_')}"
+                for zone in zones_info
+                if zone.get('name')
+            ]
+            if climate_entity_ids:
+                await async_load_history_from_recorder(hass, smart_heating_manager, climate_entity_ids)
+        
         _LOGGER.info("Tado CE: Smart Heating Analytics enabled")
     
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)

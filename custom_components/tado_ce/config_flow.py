@@ -501,7 +501,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                 vol.Required("smart_heating_settings"): data_entry_flow.section(
                     vol.Schema({
                         vol.Optional('outdoor_temp_entity', default=options.get('outdoor_temp_entity', '')): EntitySelector(
-                            EntitySelectorConfig(domain="sensor", device_class="temperature")
+                            EntitySelectorConfig(domain=["sensor", "weather"])
                         ),
                         vol.Optional('weather_compensation', default=options.get('weather_compensation', 'none')): SelectSelector(
                             SelectSelectorConfig(
