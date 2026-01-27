@@ -29,7 +29,8 @@ from .api_call_tracker import (
     CALL_TYPE_MOBILE_DEVICES,
     CALL_TYPE_OVERLAY,
     CALL_TYPE_PRESENCE_LOCK,
-    CALL_TYPE_HOME_STATE
+    CALL_TYPE_HOME_STATE,
+    CALL_TYPE_CAPABILITIES
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,7 +67,9 @@ def _detect_call_type(endpoint: str) -> Optional[int]:
         return CALL_TYPE_ZONE_STATES
     elif "weather" in endpoint:
         return CALL_TYPE_WEATHER
-    elif "zones" in endpoint and "overlay" not in endpoint and "capabilities" not in endpoint:
+    elif "capabilities" in endpoint:
+        return CALL_TYPE_CAPABILITIES
+    elif "zones" in endpoint and "overlay" not in endpoint:
         return CALL_TYPE_ZONES
     elif "mobileDevices" in endpoint:
         return CALL_TYPE_MOBILE_DEVICES
@@ -224,10 +227,14 @@ class TadoAsyncClient:
         last_reset_utc = prev_data.get("last_reset_utc")
         
         # Detect if rate limit has reset (remaining increased significantly)
+        # Use dynamic threshold: max(20, 5% of limit) to handle both 5000 and 100 call limits
+        # - 5000 calls: threshold = max(20, 250) = 250
+        # - 100 calls: threshold = max(20, 5) = 20
         if prev_remaining is not None and remaining is not None:
-            if remaining > prev_remaining + 100:  # Reset detected
+            reset_threshold = max(20, int(limit * 0.05))
+            if remaining > prev_remaining + reset_threshold:  # Reset detected
                 last_reset_utc = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-                _LOGGER.info(f"Rate limit reset detected at {last_reset_utc}")
+                _LOGGER.info(f"Rate limit reset detected at {last_reset_utc} (remaining: {prev_remaining} -> {remaining}, threshold: {reset_threshold})")
         
         # Calculate reset time using multiple strategies
         calculated_reset_seconds = None

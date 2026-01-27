@@ -1433,7 +1433,10 @@ async def _async_register_services(hass: HomeAssistant):
                         break
     
     async def handle_set_temp_offset(call: ServiceCall):
-        """Handle set_temperature_offset service call."""
+        """Handle set_temperature_offset service call.
+        
+        Sets temperature offset for ALL devices in a zone (supports multi-TRV rooms).
+        """
         from .async_api import get_async_client
         
         entity_id = call.data.get("entity_id")
@@ -1441,20 +1444,23 @@ async def _async_register_services(hass: HomeAssistant):
         
         client = get_async_client(hass)
         
-        # Get zone_id from entity and find device serial
+        # Get zone_id from entity and find ALL device serials
         climate_component = hass.data.get("entity_components", {}).get("climate")
         if climate_component:
             for ent in climate_component.entities:
                 if ent.entity_id == entity_id:
                     zone_id = getattr(ent, '_zone_id', None)
                     if zone_id:
-                        # Find device serial for this zone
-                        serial = await hass.async_add_executor_job(
-                            _get_device_serial_for_zone, zone_id
+                        # Find ALL device serials for this zone (multi-TRV support)
+                        serials = await hass.async_add_executor_job(
+                            _get_device_serials_for_zone, zone_id
                         )
-                        if serial:
-                            await client.set_device_offset(serial, offset)
-                            _LOGGER.info(f"Set offset {offset}°C for {entity_id}")
+                        if serials:
+                            for serial in serials:
+                                await client.set_device_offset(serial, offset)
+                            _LOGGER.info(f"Set offset {offset}°C for {entity_id} ({len(serials)} device(s))")
+                        else:
+                            _LOGGER.warning(f"No devices found for {entity_id}")
                     break
     
     async def handle_add_meter_reading(call: ServiceCall):
@@ -1636,6 +1642,38 @@ def _get_device_serial_for_zone(zone_id: str) -> str | None:
     except Exception as e:
         _LOGGER.error(f"Failed to get device serial for zone {zone_id}: {e}")
         return None
+
+
+def _get_device_serials_for_zone(zone_id: str) -> list[str]:
+    """Get ALL device serials for a zone.
+    
+    Used for operations that need to apply to all devices in a zone
+    (e.g., setting temperature offset on multiple TRVs).
+    
+    Args:
+        zone_id: Zone ID to look up
+        
+    Returns:
+        List of device serial numbers (may be empty)
+    """
+    from .const import ZONES_INFO_FILE
+    
+    serials = []
+    try:
+        with open(ZONES_INFO_FILE) as f:
+            zones_info = json.load(f)
+        
+        for zone in zones_info:
+            if str(zone.get('id')) == zone_id:
+                for device in zone.get('devices', []):
+                    serial = device.get('shortSerialNo')
+                    if serial:
+                        serials.append(serial)
+                break
+        return serials
+    except Exception as e:
+        _LOGGER.error(f"Failed to get device serials for zone {zone_id}: {e}")
+        return []
 
 
 # NOTE: The following blocking functions have been replaced by async methods

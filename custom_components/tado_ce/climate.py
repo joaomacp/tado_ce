@@ -682,10 +682,11 @@ class TadoACClimate(ClimateEntity):
             # Get debounce delay from config (default 15s) + 2s buffer
             debounce_window = 17.0  # 15s debounce + 2s buffer
             if elapsed < debounce_window:
-                _LOGGER.debug(f"AC {self._zone_name}: Skipping update, optimistic state active ({elapsed:.1f}s < {debounce_window}s)")
+                _LOGGER.debug(f"AC {self._zone_name}: [UPDATE-SKIP] Optimistic active ({elapsed:.1f}s < {debounce_window}s), current mode={self._attr_hvac_mode}")
                 return
             else:
                 # Clear optimistic state after window expires
+                _LOGGER.debug(f"AC {self._zone_name}: [UPDATE-CLEAR] Optimistic expired ({elapsed:.1f}s >= {debounce_window}s)")
                 self._optimistic_set_at = None
         
         try:
@@ -720,6 +721,9 @@ class TadoACClimate(ClimateEntity):
                 ac_power_value = ac_power.get('value')  # 'ON' or 'OFF'
                 # Keep percentage for backwards compatibility attribute
                 self._ac_power_percentage = ac_power.get('percentage')
+                
+                # Debug logging for turn-off race condition investigation (#44)
+                _LOGGER.debug(f"AC {self._zone_name}: [UPDATE-DATA] API power={ac_power_value}, current mode={self._attr_hvac_mode}, optimistic_set_at={self._optimistic_set_at}")
                 
                 # Setting
                 setting = zone_data.get('setting') or {}
@@ -850,6 +854,9 @@ class TadoACClimate(ClimateEntity):
         client = get_async_client(self.hass)
         
         if hvac_mode == HVACMode.OFF:
+            # Debug logging for turn-off race condition investigation (#44)
+            _LOGGER.debug(f"AC {self._zone_name}: [OFF-1] Turn OFF requested, current mode={self._attr_hvac_mode}, action={self._attr_hvac_action}")
+            
             # Optimistic update BEFORE API call
             old_mode = self._attr_hvac_mode
             old_action = self._attr_hvac_action
@@ -857,6 +864,8 @@ class TadoACClimate(ClimateEntity):
             self._attr_hvac_action = HVACAction.OFF
             self._overlay_type = "MANUAL"
             self._optimistic_set_at = time.time()
+            
+            _LOGGER.debug(f"AC {self._zone_name}: [OFF-2] Optimistic state set, _optimistic_set_at={self._optimistic_set_at:.2f}")
             self.async_write_ha_state()
             
             setting = {
@@ -865,10 +874,17 @@ class TadoACClimate(ClimateEntity):
             }
             termination = {"type": "MANUAL"}
             
-            if await client.set_zone_overlay(self._zone_id, setting, termination):
+            _LOGGER.debug(f"AC {self._zone_name}: [OFF-3] Calling API set_zone_overlay...")
+            result = await client.set_zone_overlay(self._zone_id, setting, termination)
+            _LOGGER.debug(f"AC {self._zone_name}: [OFF-4] API result={result}")
+            
+            if result:
+                _LOGGER.debug(f"AC {self._zone_name}: [OFF-5] Triggering immediate refresh")
                 await self._async_trigger_immediate_refresh("hvac_mode_change")
+                _LOGGER.debug(f"AC {self._zone_name}: [OFF-6] Immediate refresh complete")
             else:
                 # Rollback on failure
+                _LOGGER.debug(f"AC {self._zone_name}: [OFF-FAIL] API failed, rolling back to mode={old_mode}, action={old_action}")
                 self._attr_hvac_mode = old_mode
                 self._attr_hvac_action = old_action
                 self._optimistic_set_at = None

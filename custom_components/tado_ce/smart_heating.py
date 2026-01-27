@@ -20,6 +20,30 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
+from .const import (
+    WIND_SPEED_CONVERSIONS,
+    FAHRENHEIT_TO_CELSIUS_OFFSET,
+    FAHRENHEIT_TO_CELSIUS_RATIO,
+    WIND_CHILL_CONST_A,
+    WIND_CHILL_CONST_B,
+    WIND_CHILL_CONST_C,
+    WIND_CHILL_CONST_D,
+    WIND_CHILL_EXPONENT,
+    WIND_CHILL_TEMP_THRESHOLD,
+    WIND_CHILL_WIND_THRESHOLD,
+    HEAT_INDEX_CONST_A,
+    HEAT_INDEX_CONST_B,
+    HEAT_INDEX_CONST_C,
+    HEAT_INDEX_CONST_D,
+    HEAT_INDEX_CONST_E,
+    HEAT_INDEX_CONST_F,
+    HEAT_INDEX_CONST_G,
+    HEAT_INDEX_CONST_H,
+    HEAT_INDEX_CONST_I,
+    HEAT_INDEX_TEMP_THRESHOLD,
+    WEATHER_COMPENSATION_PRESETS,
+)
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -32,13 +56,7 @@ MIN_DATA_POINTS = 3  # Minimum points needed for rate calculation
 MIN_TIME_SPAN_MINUTES = 15  # Minimum time span for meaningful rate
 CACHE_SAVE_INTERVAL_MINUTES = 15  # Save cache every 15 minutes
 
-# Weather compensation presets: (cold_threshold, cold_factor, warm_threshold, warm_factor)
-WEATHER_COMPENSATION_PRESETS = {
-    "none": (None, 1.0, None, 1.0),
-    "light": (5, 1.1, 15, 0.95),
-    "moderate": (5, 1.2, 10, 0.9),
-    "aggressive": (0, 1.4, 10, 0.8),
-}
+# WEATHER_COMPENSATION_PRESETS imported from const.py
 
 
 @dataclass
@@ -558,21 +576,47 @@ class SmartHeatingManager:
             # Check if it's a weather entity (has temperature attribute)
             if self._outdoor_temp_entity.startswith('weather.'):
                 temp = state.attributes.get('temperature')
+                temp_unit = state.attributes.get('temperature_unit', '°C')
                 if temp is not None:
                     if self._use_feels_like:
                         # Try to get feels-like from attributes
                         feels_like = self._get_feels_like_from_weather(state)
                         if feels_like is not None:
-                            return feels_like
-                    return float(temp)
+                            return self._convert_temp_to_celsius(feels_like, temp_unit)
+                    return self._convert_temp_to_celsius(float(temp), temp_unit)
             else:
-                # Regular sensor entity
-                return float(state.state)
+                # Regular sensor entity - check unit_of_measurement
+                temp_unit = state.attributes.get('unit_of_measurement', '°C')
+                return self._convert_temp_to_celsius(float(state.state), temp_unit)
         except (ValueError, TypeError) as e:
             _LOGGER.debug(f"Failed to get outdoor temperature: {e}")
             return None
         
         return None
+    
+    def _convert_temp_to_celsius(self, temp: float, unit: str) -> float:
+        """Convert temperature to Celsius.
+        
+        Args:
+            temp: Temperature value
+            unit: Unit string (°C, °F, C, F, etc.)
+            
+        Returns:
+            Temperature in Celsius
+        """
+        unit_upper = unit.upper().replace('°', '').strip()
+        
+        if unit_upper in ('C', 'CELSIUS'):
+            return temp
+        elif unit_upper in ('F', 'FAHRENHEIT'):
+            return round(
+                (temp - FAHRENHEIT_TO_CELSIUS_OFFSET) * FAHRENHEIT_TO_CELSIUS_RATIO, 
+                1
+            )
+        else:
+            # Unknown unit, assume Celsius
+            _LOGGER.debug(f"Unknown temperature unit '{unit}', assuming Celsius")
+            return temp
     
     def _get_feels_like_from_weather(self, state) -> Optional[float]:
         """Extract feels-like temperature from weather entity.
@@ -603,52 +647,95 @@ class SmartHeatingManager:
         temp = attrs.get('temperature')
         humidity = attrs.get('humidity')
         wind_speed = attrs.get('wind_speed')
+        wind_speed_unit = attrs.get('wind_speed_unit', 'km/h')
         
         if temp is not None and humidity is not None:
+            # Convert wind speed to km/h for calculation
+            wind_speed_kmh = self._convert_wind_speed_to_kmh(
+                float(wind_speed) if wind_speed else 0,
+                wind_speed_unit
+            )
             return self._calculate_feels_like(
                 float(temp),
                 float(humidity),
-                float(wind_speed) if wind_speed else 0
+                wind_speed_kmh
             )
         
         return None
+    
+    def _convert_wind_speed_to_kmh(self, speed: float, unit: str) -> float:
+        """Convert wind speed to km/h.
+        
+        Args:
+            speed: Wind speed value
+            unit: Unit string (km/h, m/s, mph, etc.)
+            
+        Returns:
+            Wind speed in km/h
+        """
+        # Normalize unit string for lookup
+        unit_normalized = unit.lower().replace(' ', '').replace('/', '')
+        
+        # Look up conversion factor from constants
+        factor = WIND_SPEED_CONVERSIONS.get(unit_normalized)
+        if factor is not None:
+            return speed * factor
+        
+        # Also try with slash for common formats
+        unit_with_slash = unit.lower().replace(' ', '')
+        factor = WIND_SPEED_CONVERSIONS.get(unit_with_slash)
+        if factor is not None:
+            return speed * factor
+        
+        # Unknown unit, assume km/h
+        _LOGGER.debug(f"Unknown wind speed unit '{unit}', assuming km/h")
+        return speed
     
     def _calculate_feels_like(
         self,
         temp: float,
         humidity: float,
-        wind_speed: float = 0
+        wind_speed_kmh: float = 0
     ) -> float:
         """Calculate feels-like temperature.
         
-        Uses wind chill for cold weather (≤10°C) and heat index for warm weather.
+        Uses wind chill for cold weather and heat index for warm weather.
         
         Args:
             temp: Temperature in °C
             humidity: Relative humidity (0-100)
-            wind_speed: Wind speed in km/h (default 0)
+            wind_speed_kmh: Wind speed in km/h (default 0)
             
         Returns:
             Feels-like temperature in °C
         """
-        # Wind chill for cold weather (≤10°C and wind > 4.8 km/h)
-        if temp <= 10 and wind_speed > 4.8:
+        # Wind chill for cold weather
+        if temp <= WIND_CHILL_TEMP_THRESHOLD and wind_speed_kmh > WIND_CHILL_WIND_THRESHOLD:
             # Wind chill formula (Environment Canada)
-            # T_wc = 13.12 + 0.6215*T - 11.37*V^0.16 + 0.3965*T*V^0.16
-            v_pow = wind_speed ** 0.16
-            feels_like = 13.12 + 0.6215 * temp - 11.37 * v_pow + 0.3965 * temp * v_pow
+            v_pow = wind_speed_kmh ** WIND_CHILL_EXPONENT
+            feels_like = (
+                WIND_CHILL_CONST_A 
+                + WIND_CHILL_CONST_B * temp 
+                - WIND_CHILL_CONST_C * v_pow 
+                + WIND_CHILL_CONST_D * temp * v_pow
+            )
             return round(feels_like, 1)
         
-        # Heat index for warm weather (≥27°C)
-        if temp >= 27:
-            # Simplified heat index formula
-            # HI = -8.785 + 1.611*T + 2.339*RH - 0.146*T*RH - 0.012*T² - 0.016*RH² + 0.002*T²*RH + 0.001*T*RH² - 0.000002*T²*RH²
+        # Heat index for warm weather
+        if temp >= HEAT_INDEX_TEMP_THRESHOLD:
             t = temp
             rh = humidity
-            hi = (-8.785 + 1.611 * t + 2.339 * rh - 0.146 * t * rh 
-                  - 0.012 * t * t - 0.016 * rh * rh 
-                  + 0.002 * t * t * rh + 0.001 * t * rh * rh 
-                  - 0.000002 * t * t * rh * rh)
+            hi = (
+                HEAT_INDEX_CONST_A 
+                + HEAT_INDEX_CONST_B * t 
+                + HEAT_INDEX_CONST_C * rh 
+                + HEAT_INDEX_CONST_D * t * rh 
+                + HEAT_INDEX_CONST_E * t * t 
+                + HEAT_INDEX_CONST_F * rh * rh 
+                + HEAT_INDEX_CONST_G * t * t * rh 
+                + HEAT_INDEX_CONST_H * t * rh * rh 
+                + HEAT_INDEX_CONST_I * t * t * rh * rh
+            )
             return round(hi, 1)
         
         # For moderate temperatures, just return actual temp

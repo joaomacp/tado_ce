@@ -21,6 +21,7 @@ CALL_TYPE_MOBILE_DEVICES = 4
 CALL_TYPE_OVERLAY = 5
 CALL_TYPE_PRESENCE_LOCK = 6
 CALL_TYPE_HOME_STATE = 7
+CALL_TYPE_CAPABILITIES = 8
 
 CALL_TYPE_NAMES = {
     CALL_TYPE_ZONE_STATES: "zoneStates",
@@ -30,6 +31,7 @@ CALL_TYPE_NAMES = {
     CALL_TYPE_OVERLAY: "overlay",
     CALL_TYPE_PRESENCE_LOCK: "presenceLock",
     CALL_TYPE_HOME_STATE: "homeState",
+    CALL_TYPE_CAPABILITIES: "capabilities",
 }
 
 # Shared executor for file I/O (avoids creating new threads for each operation)

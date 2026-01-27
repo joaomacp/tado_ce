@@ -4,6 +4,35 @@
 
 ---
 
+## v1.9.0 (In Development) - Smart Heating Analytics + Bug Fixes
+
+### Bug Reports & Issue Reporters
+
+**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #54](https://github.com/hiall-fyi/tado_ce/issues/54)
+- Reported API reset detection not working with 100-call limit accounts
+- Helped identify that hardcoded threshold needed to be dynamic
+
+**[@neonsp](https://github.com/neonsp)** - [Issue #61](https://github.com/hiall-fyi/tado_ce/issues/61)
+- Reported Refresh AC Capabilities button not recording API calls in history
+- Identified missing call type tracking for capabilities endpoint
+
+**[@colinada](https://github.com/colinada)** - [Issue #66](https://github.com/hiall-fyi/tado_ce/issues/66)
+- Reported temperature offset only applying to first TRV in multi-TRV rooms
+- Identified that offset service needed to loop through all devices
+
+**[@hapklaar](https://github.com/hapklaar)**, **[@neonsp](https://github.com/neonsp)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Continued testing and feedback on AC turn-off behavior
+- Debug logging added to help diagnose intermittent restore-to-ON issue
+
+### What Was Fixed
+
+- ✅ **Issue #54**: API reset detection now uses dynamic threshold for both 5000 and 100 call limits
+- ✅ **Issue #61**: Refresh AC Capabilities button now tracked in call history (Code 8)
+- ✅ **Issue #66**: Temperature offset now applied to ALL devices in multi-TRV zones
+- ✅ **Issue #44**: Added detailed debug logging for AC turn-off diagnosis
+
+---
+
 ## v1.8.3 (2026-01-26) - AC Optimistic Updates & Cached Capabilities
 
 ### Bug Reports & Issue Reporters

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 from homeassistant.config_entries import ConfigEntry
 
-from .const import CONFIG_FILE
+from .const import CONFIG_FILE, WEATHER_COMPENSATION_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,13 +35,7 @@ DEFAULT_OUTDOOR_TEMP_ENTITY = ""  # v1.9.0: Outdoor temperature entity for weath
 DEFAULT_WEATHER_COMPENSATION = "none"  # v1.9.0: Weather compensation preset
 DEFAULT_USE_FEELS_LIKE = False  # v1.9.0: Use feels-like temperature instead of actual
 
-# Weather compensation presets: (cold_threshold, cold_factor, warm_threshold, warm_factor)
-WEATHER_COMPENSATION_PRESETS = {
-    "none": (None, 1.0, None, 1.0),
-    "light": (5, 1.1, 15, 0.95),
-    "moderate": (5, 1.2, 10, 0.9),
-    "aggressive": (0, 1.4, 10, 0.8),
-}
+# WEATHER_COMPENSATION_PRESETS moved to const.py (v1.9.0)
 
 # Validation constants
 MIN_HOUR = 0

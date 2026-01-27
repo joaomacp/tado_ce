@@ -24,6 +24,12 @@ Hub device identifier migration plus intelligent heating analytics.
 - [x] **Weather Compensation** - Adjust predictions based on outdoor temperature
 - [x] **2-Tier Data Loading** - Cache file + Recorder history for instant bootstrap
 
+**Bug Fixes:**
+- [x] **Fixed API reset detection for 100-call limit** - Dynamic threshold now works with both 5000 and 100 call limits ([#54](https://github.com/hiall-fyi/tado_ce/issues/54))
+- [x] **AC turn-off debug logging** - Added detailed logging to diagnose intermittent restore-to-ON issue ([#44](https://github.com/hiall-fyi/tado_ce/issues/44))
+- [x] **Refresh AC Capabilities now tracked in call history** - API calls from button now recorded ([#61](https://github.com/hiall-fyi/tado_ce/issues/61))
+- [x] **Fixed temperature offset for multi-TRV rooms** - Offset now applied to ALL devices in a zone ([#66](https://github.com/hiall-fyi/tado_ce/issues/66))
+
 **Data Sources:**
 - Tier 1: Cache file (2h detailed data, survives restarts)
 - Tier 2: Recorder history (24h, for bootstrap after cache expires)
@@ -61,6 +67,24 @@ Major release enabling full multi-home support plus smart boost feature.
 - [ ] **Duration Calculation** - `(target - current) / heating_rate`
 - [ ] **Reasonable Caps** - Max 3 hours to prevent runaway heating
 
+**API Monitoring Enhancements** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65)):
+- [ ] **Call History Sensor** - Separate sensor for Activity card visualization
+- [ ] **Call Priority System** - Configurable weighting for different call types
+- [ ] **Granular API Call Options** - Enable/disable optional call types in Advanced settings
+
+**API Call Types - What's Configurable:**
+
+| Code | Type | Configurable? | Notes |
+|------|------|---------------|-------|
+| 1 | zoneStates | ❌ Required | Core data - temperature, humidity, heating status |
+| 2 | weather | ✅ Already available | Weather sync option |
+| 3 | zones | ❌ Required | Zone configuration, needed at startup |
+| 4 | mobileDevices | ✅ Already available | Mobile devices sync option |
+| 5 | overlay | ❌ Required | Manual overrides, needed for heating control |
+| 6 | presenceLock | ✅ Will add | Home/Away lock status |
+| 7 | homeState | ✅ Already available | Home state sync option |
+| 8 | capabilities | ✅ Auto-cached | AC capabilities, fetched once and cached |
+
 **Setup & Polish:**
 - [ ] **Auto-assign Areas** - Suggest HA Areas based on zone names during setup ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
 - [ ] **Setup wizard improvements** - Streamlined flow with better error messages
@@ -77,11 +101,22 @@ Major release enabling full multi-home support plus smart boost feature.
 
 ## Considering (Need More Feedback)
 
+- Device assignment priority - assign sensors to HEATING zones over HOT_WATER when device serves multiple zones ([#56](https://github.com/hiall-fyi/tado_ce/issues/56))
+- Rate Trend indicator for UFH - detect "acceleration" when heating is catching up ([#33](https://github.com/hiall-fyi/tado_ce/discussions/33))
 - Air Comfort sensors (humidity comfort level)
 - Boost button entity
 - Apply for HACS default repository inclusion
 - Max Flow Temperature control (requires OpenTherm, [#15](https://github.com/hiall-fyi/tado_ce/issues/15))
 - Combi boiler mode - hide timers/schedules for on-demand hot water ([#15](https://github.com/hiall-fyi/tado_ce/issues/15))
+
+---
+
+## Backlog (Future Consideration)
+
+**Environment Sensors** ([#64](https://github.com/hiall-fyi/tado_ce/issues/64)):
+- [ ] **Mold Risk Indicator** - Calculate mold risk from temp + humidity
+- [ ] **Indoor Air Quality (IAQ)** - Air quality score per zone
+- [ ] **Air Comfort** - Similar to Tado app's comfort visualization
 
 ---
 
