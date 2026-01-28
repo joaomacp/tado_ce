@@ -6,6 +6,14 @@
 
 ## v1.9.0 (In Development) - Smart Comfort Analytics + Bug Fixes
 
+### Feature Ideas & Suggestions
+
+**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #64](https://github.com/hiall-fyi/tado_ce/issues/64)
+- Proposed Mold Risk Indicator based on temp + humidity
+- Suggested environment monitoring features
+- Inspired the Comfort Level sensor (author's personal implementation now shared with community)
+- Ideas for Mold Risk added to backlog for future development
+
 ### Bug Reports & Issue Reporters
 
 **[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #54](https://github.com/hiall-fyi/tado_ce/issues/54)

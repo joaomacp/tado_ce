@@ -10,11 +10,13 @@ All notable changes to Tado CE will be documented in this file.
 - **Heating Rate Sensor** - °C/hour when heating is active
 - **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - **Time to Target Sensor** - Estimated minutes to reach target temperature (zones with TRV only)
-- **Comfort at Risk Binary Sensor** - Alert when target may be missed
 - **Heating Efficiency Sensor** - Compare current vs baseline rate (detect anomalies)
-- **Configurable Comfort Thresholds** - Set min/max comfort temperatures for zones without TRV
 - **Weather Compensation** - Adjust predictions based on outdoor temperature
 - **Unit Conversions** - Automatic conversion for Fahrenheit and various wind speed units
+
+### Environment Sensors (Always Enabled)
+- **Mold Risk Sensor** - Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
+- **Comfort Level Sensor** - Per-zone adaptive comfort (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix). Uses ASHRAE 55 adaptive model with outdoor temp, or latitude-based seasonal thresholds as fallback ([#64](https://github.com/hiall-fyi/tado_ce/issues/64))
 
 ### Smart Comfort Insights (Phase 3)
 - **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
@@ -32,6 +34,7 @@ All notable changes to Tado CE will be documented in this file.
 - **Renamed "Advanced Settings" to "Experimental"** - Clearer naming for test/debug options
 - **Moved settings to logical sections** - `refresh_debounce_seconds` and `mobile_devices_frequent_sync` now in Polling Schedule
 - **Renamed "Open Window" to "Window"** - Shorter display name for binary sensor
+- **Removed comfort threshold config** - `comfort_threshold_heating` and `comfort_threshold_cooling` removed (environment sensors now auto-detect from zone data)
 
 ### Bug Fixes
 - **Fixed API reset detection for 100-call limit** - Dynamic threshold now works with both 5000 and 100 call limits ([#54](https://github.com/hiall-fyi/tado_ce/issues/54))

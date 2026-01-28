@@ -20,7 +20,6 @@ Complete Smart Comfort suite with analytics and predictive insights for both Hea
 - [x] **Heating Rate Sensor** - °C/hour when heating is active
 - [x] **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - [x] **Time to Target Sensor** - Estimated minutes to reach target temperature
-- [x] **Comfort at Risk Binary Sensor** - Alert when target may be missed
 - [x] **Heating Efficiency Sensor** - Compare current vs baseline rate (detect anomalies)
 - [x] **Weather Compensation** - Adjust predictions based on outdoor temperature
 - [x] **2-Tier Data Loading** - Cache file + Recorder history for instant bootstrap
