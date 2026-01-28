@@ -21,6 +21,7 @@ Hub device identifier migration plus intelligent heating analytics.
 - [x] **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - [x] **Time to Target Sensor** - Estimated minutes to reach target temperature
 - [x] **Comfort at Risk Binary Sensor** - Alert when target may be missed
+- [x] **Heating Efficiency Sensor** - Compare current vs baseline rate (detect anomalies)
 - [x] **Weather Compensation** - Adjust predictions based on outdoor temperature
 - [x] **2-Tier Data Loading** - Cache file + Recorder history for instant bootstrap
 
@@ -43,7 +44,6 @@ Leverage long-term statistics for predictive insights.
 
 **Smart Heating Insights Sensor:**
 - [ ] **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
-- [ ] **Rate Anomaly Detection** - Alert when heating rate deviates significantly from historical
 - [ ] **Preheat Advisor** - Suggest optimal preheat time based on historical warm-up patterns
 
 **Example Insights:**

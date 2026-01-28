@@ -275,6 +275,51 @@ For air conditioning zones, climate entities support additional features:
 
 ---
 
+## Smart Heating Analytics (v1.9.0)
+
+**Optional feature** - Enable in integration options under "Smart Heating Analytics".
+
+Provides intelligent heating insights based on temperature history analysis.
+
+### Per Zone Sensors
+
+| Entity | Type | Unit | Description |
+|--------|------|------|-------------|
+| `sensor.{zone}_heating_rate` | Sensor | °C/h | Temperature rise rate when heating is active |
+| `sensor.{zone}_cooling_rate` | Sensor | °C/h | Temperature drop rate when heating is off (heat loss) |
+| `sensor.{zone}_heating_efficiency` | Sensor | % | Current rate vs baseline (detect anomalies) |
+| `sensor.{zone}_time_to_target` | Sensor | min | Estimated time to reach target temperature |
+| `sensor.{zone}_comfort_level` | Sensor | State | Too Cold / Comfortable / Too Warm |
+
+### Per Zone Binary Sensors
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `binary_sensor.{zone}_comfort_at_risk` | Binary Sensor | Alert when target may not be reached in time |
+
+### Heating Efficiency Sensor Details
+
+The Heating Efficiency sensor compares current heating rate against the baseline (historical average).
+
+| State | Meaning | Possible Causes |
+|-------|---------|-----------------|
+| `< 75%` | Slow heating | Open window, poor insulation, boiler issue |
+| `75-125%` | Normal | Heating as expected |
+| `> 125%` | Fast heating | External heat source (sun, cooking, guests) |
+
+**Attributes:**
+- `current_rate`: Current heating rate in °C/h
+- `baseline_rate`: Historical average heating rate
+- `status`: "slow" / "normal" / "fast"
+
+### Data Requirements
+
+- Sensors need ~15 minutes of data to calculate rates
+- Baseline rates require HA Recorder long-term statistics (typically 1+ week)
+- Cache stores up to 7-30 days of readings (configurable)
+
+---
+
 ## API Usage Summary
 
 **v1.2.0 Optimizations:**
