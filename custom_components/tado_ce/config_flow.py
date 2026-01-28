@@ -406,24 +406,23 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
             # Flatten features section
             if 'features' in user_input:
                 features = user_input['features']
-                for key in ['weather_enabled', 'mobile_devices_enabled', 'home_state_sync_enabled', 'offset_enabled', 'schedule_calendar_enabled', 'smart_heating_enabled']:
+                for key in ['weather_enabled', 'mobile_devices_enabled', 'home_state_sync_enabled', 'offset_enabled', 'schedule_calendar_enabled', 'smart_heating_enabled', 'api_history_retention_days']:
                     if key in features:
                         processed_input[key] = features[key]
             
             # Flatten polling_schedule section
             if 'polling_schedule' in user_input:
                 polling = user_input['polling_schedule']
-                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval']:
+                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 'refresh_debounce_seconds', 'mobile_devices_frequent_sync']:
                     if key in polling:
                         processed_input[key] = polling[key]
             
-            # Flatten advanced_settings section
-            if 'advanced_settings' in user_input:
-                advanced = user_input['advanced_settings']
-                for key in ['hot_water_timer_duration', 'refresh_debounce_seconds', 
-                           'mobile_devices_frequent_sync', 'api_history_retention_days', 'test_mode_enabled']:
-                    if key in advanced:
-                        processed_input[key] = advanced[key]
+            # Flatten experimental section
+            if 'experimental' in user_input:
+                experimental = user_input['experimental']
+                for key in ['hot_water_timer_duration', 'test_mode_enabled']:
+                    if key in experimental:
+                        processed_input[key] = experimental[key]
             
             # Flatten smart_comfort_settings section
             if 'smart_comfort_settings' in user_input:
@@ -483,6 +482,9 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('offset_enabled', default=options.get('offset_enabled', False)): BooleanSelector(),
                         vol.Optional('schedule_calendar_enabled', default=options.get('schedule_calendar_enabled', False)): BooleanSelector(),
                         vol.Optional('smart_heating_enabled', default=options.get('smart_heating_enabled', False)): BooleanSelector(),
+                        vol.Optional('api_history_retention_days', default=options.get('api_history_retention_days', 14)): NumberSelector(
+                            NumberSelectorConfig(min=0, max=365, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="days")
+                        ),
                     }),
                     {"collapsed": True},
                 ),
@@ -502,6 +504,10 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('custom_night_interval', default=str(custom_night_interval) if custom_night_interval else ""): TextSelector(
                             TextSelectorConfig(type=TextSelectorType.TEXT)
                         ),
+                        vol.Optional('refresh_debounce_seconds', default=options.get('refresh_debounce_seconds', 15)): NumberSelector(
+                            NumberSelectorConfig(min=1, max=60, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="sec")
+                        ),
+                        vol.Optional('mobile_devices_frequent_sync', default=options.get('mobile_devices_frequent_sync', False)): BooleanSelector(),
                     }),
                     {"collapsed": True},
                 ),
@@ -533,18 +539,11 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                     {"collapsed": True},
                 ),
                 
-                # === Advanced Settings (collapsed) ===
-                vol.Required("advanced_settings"): data_entry_flow.section(
+                # === Experimental (collapsed) ===
+                vol.Required("experimental"): data_entry_flow.section(
                     vol.Schema({
                         vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
                             NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
-                        ),
-                        vol.Optional('refresh_debounce_seconds', default=options.get('refresh_debounce_seconds', 15)): NumberSelector(
-                            NumberSelectorConfig(min=1, max=60, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="sec")
-                        ),
-                        vol.Optional('mobile_devices_frequent_sync', default=options.get('mobile_devices_frequent_sync', False)): BooleanSelector(),
-                        vol.Optional('api_history_retention_days', default=options.get('api_history_retention_days', 14)): NumberSelector(
-                            NumberSelectorConfig(min=0, max=365, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="days")
                         ),
                         vol.Optional('test_mode_enabled', default=options.get('test_mode_enabled', False)): BooleanSelector(),
                     }),
