@@ -81,7 +81,7 @@
               "home_state_sync_enabled": "Sync Tado home/away state for Away Mode switch and climate presets (+1 API call per quick sync)",
               "offset_enabled": "Add offset_celsius attribute to climate entities (+1 API call per device per full sync)",
               "schedule_calendar_enabled": "Display heating schedules as calendar entities (read-only). Initial sync fetches all zones, then uses cached data. Use Refresh Schedule button to update.",
-              "smart_comfort_enabled": "Add heating/cooling rate sensors, time-to-target estimation, and comfort risk alerts per zone. No extra API calls - uses existing zone data.",
+              "smart_comfort_enabled": "Add heating/cooling rate sensors and time-to-target estimation per zone. No extra API calls - uses existing zone data.",
               "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)"
             }
           },

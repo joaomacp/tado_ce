@@ -3,7 +3,6 @@
 Provides intelligent heating analytics including:
 - Temperature rate calculation (heating/cooling rates)
 - Time to target estimation
-- Comfort risk prediction
 - Weather compensation (Phase 3)
 - Recorder integration for historical data (Phase 3)
 - File persistence for data backup (Phase 3)
@@ -938,57 +937,6 @@ class SmartComfortManager:
         if zone_id not in self._zones:
             return None
         return self._zones[zone_id].get_time_to_target(current_temp, target_temp, zone_type)
-    
-    def is_comfort_at_risk(
-        self,
-        zone_id: str,
-        current_temp: float,
-        target_temp: float,
-        minutes_until_schedule: int,
-        is_currently_heating: bool,
-        zone_type: str = "HEATING"
-    ) -> Optional[bool]:
-        """Check if comfort target is at risk of being missed.
-        
-        Args:
-            zone_id: Zone identifier
-            current_temp: Current temperature
-            target_temp: Target temperature at schedule time
-            minutes_until_schedule: Minutes until next schedule change
-            is_currently_heating: Whether HVAC is currently active
-            zone_type: "HEATING" or "AIR_CONDITIONING"
-            
-        Returns:
-            True if target will likely be missed, False if OK, None if unknown
-        """
-        if zone_id not in self._zones:
-            return None
-        
-        diff = target_temp - current_temp
-        
-        # For HEATING zones: only at risk if we need to heat up (current < target)
-        # For AC zones: only at risk if we need to cool down (current > target)
-        if zone_type == "HEATING":
-            if diff <= 0:
-                # Current >= target, already comfortable, no risk
-                return False
-        else:  # AIR_CONDITIONING
-            if diff >= 0:
-                # Current <= target, already comfortable, no risk
-                return False
-        
-        zone = self._zones[zone_id]
-        predicted = zone.predict_temperature(minutes_until_schedule, is_currently_heating)
-        
-        if predicted is None:
-            return None
-        
-        # For heating: at risk if predicted < target - 0.5°C
-        # For cooling (AC): at risk if predicted > target + 0.5°C
-        if zone_type == "HEATING":
-            return predicted < (target_temp - 0.5)
-        else:
-            return predicted > (target_temp + 0.5)
     
     def get_historical_comparison(
         self,

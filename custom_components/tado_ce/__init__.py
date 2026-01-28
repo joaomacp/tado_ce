@@ -1714,7 +1714,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .api_call_tracker import cleanup_executor
     cleanup_executor()
     
-    # Clean up Smart Heating manager (saves data before cleanup)
+    # Clean up Smart Comfort manager (saves data before cleanup)
     from .smart_comfort import cleanup_smart_comfort_manager
     cleanup_smart_comfort_manager()
     

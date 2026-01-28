@@ -1250,7 +1250,7 @@ class TadoHeatingRateSensor(TadoBaseSensor):
         }
     
     def update(self):
-        """Update heating rate from SmartHeatingManager."""
+        """Update heating rate from SmartComfortManager."""
         try:
             # v1.9.0: Use hass.data instead of global singleton for multi-home support
             manager = self.hass.data.get(DOMAIN, {}).get('smart_comfort_manager') if self.hass else None
@@ -1304,7 +1304,7 @@ class TadoCoolingRateSensor(TadoBaseSensor):
         }
     
     def update(self):
-        """Update cooling rate from SmartHeatingManager."""
+        """Update cooling rate from SmartComfortManager."""
         try:
             # v1.9.0: Use hass.data instead of global singleton for multi-home support
             manager = self.hass.data.get(DOMAIN, {}).get('smart_comfort_manager') if self.hass else None
@@ -1378,7 +1378,7 @@ class TadoHeatingEfficiencySensor(TadoBaseSensor):
         return "mdi:gauge-empty"
     
     def update(self):
-        """Update heating efficiency from SmartHeatingManager."""
+        """Update heating efficiency from SmartComfortManager."""
         try:
             manager = self.hass.data.get(DOMAIN, {}).get('smart_comfort_manager') if self.hass else None
             
@@ -1451,7 +1451,7 @@ class TadoTimeToTargetSensor(TadoBaseSensor):
         }
     
     def update(self):
-        """Update time to target from SmartHeatingManager."""
+        """Update time to target from SmartComfortManager."""
         try:
             # v1.9.0: Use hass.data instead of global singleton for multi-home support
             manager = self.hass.data.get(DOMAIN, {}).get('smart_comfort_manager') if self.hass else None
@@ -1559,7 +1559,7 @@ class TadoHistoricalTempSensor(TadoBaseSensor):
         return "mdi:thermometer-check"
     
     def update(self):
-        """Update historical comparison from SmartHeatingManager."""
+        """Update historical comparison from SmartComfortManager."""
         try:
             manager = self.hass.data.get(DOMAIN, {}).get('smart_comfort_manager') if self.hass else None
             

@@ -395,8 +395,8 @@ class ConfigurationManager:
     def get_smart_comfort_enabled(self) -> bool:
         """Check if Smart Comfort analytics is enabled.
         
-        v1.9.0: Opt-in feature providing heating/cooling rate sensors,
-        time-to-target estimation, and comfort risk alerts.
+        v1.9.0: Opt-in feature providing heating/cooling rate sensors
+        and time-to-target estimation.
         
         Returns:
             True if Smart Comfort sensors should be created, False otherwise

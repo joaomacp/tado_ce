@@ -8,11 +8,14 @@
 
 ### Feature Ideas & Suggestions
 
+**[@thefern69](https://github.com/thefern69)** - [Discussion #33](https://github.com/hiall-fyi/tado_ce/discussions/33)
+- Proposed room-aware early start / preheat concept
+- Inspired the Smart Comfort Analytics suite (heating rate, cooling rate, preheat advisor)
+
 **[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #64](https://github.com/hiall-fyi/tado_ce/issues/64)
 - Proposed Mold Risk Indicator based on temp + humidity
 - Suggested environment monitoring features
 - Inspired the Comfort Level sensor (author's personal implementation now shared with community)
-- Ideas for Mold Risk added to backlog for future development
 
 ### Bug Reports & Issue Reporters
 
@@ -36,8 +39,10 @@
 - Continued testing and feedback on AC turn-off behavior
 - Debug logging added to help diagnose intermittent restore-to-ON issue
 
-### What Was Fixed
+### What Was Added/Fixed
 
+- ✅ **Discussion #33**: Smart Comfort Analytics - Heating Rate, Cooling Rate, Time to Target, Heating Efficiency, Preheat Advisor
+- ✅ **Issue #64**: Environment Sensors - Mold Risk Indicator, Comfort Level sensor
 - ✅ **Issue #54**: API reset detection now uses dynamic threshold for both 5000 and 100 call limits
 - ✅ **Issue #61**: Refresh AC Capabilities button now tracked in call history (Code 8)
 - ✅ **Issue #66**: Temperature offset now applied to ALL devices in multi-TRV zones

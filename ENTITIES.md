@@ -2,6 +2,34 @@
 
 Complete list of all entities created by Tado CE integration.
 
+## 📋 v1.9.0 Changes
+
+### Environment Sensors (Always Enabled)
+New sensors automatically created for all HEATING and AIR_CONDITIONING zones:
+- **Mold Risk Sensor** (`sensor.{zone}_mold_risk`): Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
+- **Comfort Level Sensor** (`sensor.{zone}_comfort_level`): Adaptive comfort level (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix)
+
+### Smart Comfort Analytics (Opt-in)
+Enable in Options → Features → "Enable Smart Comfort Analytics":
+- **Heating Rate** (`sensor.{zone}_heating_rate`): °C/hour when heating is active
+- **Cooling Rate** (`sensor.{zone}_cooling_rate`): °C/hour when heating is off (heat loss rate)
+- **Time to Target** (`sensor.{zone}_time_to_target`): Estimated minutes to reach target (TRV zones only)
+- **Heating Efficiency** (`sensor.{zone}_heating_efficiency`): Compare current vs baseline rate
+- **Historical Temp** (`sensor.{zone}_historical_temp`): Compare current temp vs 7-day same-time average
+- **Preheat Advisor** (`sensor.{zone}_preheat_advisor`): Suggested preheat start time
+- **Smart Comfort Target** (`sensor.{zone}_smart_comfort_target`): Compensated target temperature
+
+### Schedule Sensors (Opt-in, with Smart Comfort)
+- **Next Schedule Time** (`sensor.{zone}_next_schedule_time`): When next scheduled change occurs
+- **Next Schedule Temp** (`sensor.{zone}_next_schedule_temp`): Target temperature of next block
+
+### UI/UX Improvements
+- **Reorganized Options**: Now grouped into Features, Polling Schedule, Smart Comfort, and Experimental sections
+- **Renamed "Advanced Settings" to "Experimental"**: Clearer naming
+- **Renamed "Open Window" to "Window"**: Shorter display name for binary sensor
+
+---
+
 ## 📋 v1.8.0 Changes
 
 ### Schedule Calendar (Optional)
@@ -290,12 +318,6 @@ Provides intelligent heating insights based on temperature history analysis.
 | `sensor.{zone}_heating_efficiency` | Sensor | % | Current rate vs baseline (detect anomalies) |
 | `sensor.{zone}_time_to_target` | Sensor | min | Estimated time to reach target temperature |
 | `sensor.{zone}_comfort_level` | Sensor | State | Too Cold / Comfortable / Too Warm |
-
-### Per Zone Binary Sensors
-
-| Entity | Type | Description |
-|--------|------|-------------|
-| `binary_sensor.{zone}_comfort_at_risk` | Binary Sensor | Alert when target may not be reached in time |
 
 ### Heating Efficiency Sensor Details
 

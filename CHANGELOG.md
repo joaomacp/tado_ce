@@ -2,11 +2,11 @@
 
 All notable changes to Tado CE will be documented in this file.
 
-## [1.9.0-dev] - In Development
+## [1.9.0] - 2026-01-29
 
-**Smart Comfort Analytics + Insights** - Complete Smart Comfort suite with analytics and predictive insights for both Heating and AC zones.
+**Smart Comfort Analytics + Environment Sensors** - Complete Smart Comfort suite with analytics and environment monitoring for both Heating and AC zones.
 
-### Smart Comfort Analytics (Phase 1+2)
+### Smart Comfort Analytics
 - **Heating Rate Sensor** - °C/hour when heating is active
 - **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - **Time to Target Sensor** - Estimated minutes to reach target temperature (zones with TRV only)
@@ -14,22 +14,22 @@ All notable changes to Tado CE will be documented in this file.
 - **Weather Compensation** - Adjust predictions based on outdoor temperature
 - **Unit Conversions** - Automatic conversion for Fahrenheit and various wind speed units
 
-### Environment Sensors (Always Enabled)
-- **Mold Risk Sensor** - Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
-- **Comfort Level Sensor** - Per-zone adaptive comfort (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix). Uses ASHRAE 55 adaptive model with outdoor temp, or latitude-based seasonal thresholds as fallback ([#64](https://github.com/hiall-fyi/tado_ce/issues/64))
-
-### Smart Comfort Insights (Phase 3)
+### Smart Comfort Insights ([Discussion #33](https://github.com/hiall-fyi/tado_ce/discussions/33))
 - **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
 - **Preheat Advisor** - Suggest optimal preheat start time based on historical warm-up patterns
 - **Smart Comfort Target Sensor** - Compensated target temperature based on outdoor temp + humidity
 - **Smart Comfort Mode** - Preset-based comfort optimization (None/Light/Moderate/Aggressive)
 
-### Schedule Integration - NEW
+### Environment Sensors ([#64](https://github.com/hiall-fyi/tado_ce/issues/64))
+- **Mold Risk Sensor** - Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
+- **Comfort Level Sensor** - Per-zone adaptive comfort (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix). Uses ASHRAE 55 adaptive model with outdoor temp, or latitude-based seasonal thresholds as fallback
+
+### Schedule Sensors
 - **Next Schedule Time Sensor** - Shows when next scheduled temperature change occurs (e.g., "17:00" or "Tomorrow 07:00")
 - **Next Schedule Temp Sensor** - Shows target temperature of next scheduled block
 - **Cross-day schedule lookup** - Schedule sensors now look ahead to tomorrow if no blocks remain today
 
-### UI/UX Improvements - NEW
+### UI/UX Improvements
 - **Reorganized Options** - Options now grouped into Features, Polling Schedule, Smart Comfort, and Experimental sections
 - **Renamed "Advanced Settings" to "Experimental"** - Clearer naming for test/debug options
 - **Moved settings to logical sections** - `refresh_debounce_seconds` and `mobile_devices_frequent_sync` now in Polling Schedule
@@ -47,7 +47,10 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed negative heating rate during active heating** - Heating rate now clamped to >= 0 (sensor lag cannot cause negative rates)
 
 ### Internal Improvements
-- **Smart Comfort per-home isolation** - SmartHeatingManager now accessed via `hass.data` instead of global singleton, preparing for multi-home support
+- **Smart Comfort per-home isolation** - SmartComfortManager now accessed via `hass.data` instead of global singleton, preparing for multi-home support
+
+### Contributors
+Thanks to [@thefern69](https://github.com/thefern69) for the Smart Comfort idea ([Discussion #33](https://github.com/hiall-fyi/tado_ce/discussions/33)), [@ChrisMarriott38](https://github.com/ChrisMarriott38) for environment sensor suggestions and bug reports ([#64](https://github.com/hiall-fyi/tado_ce/issues/64), [#54](https://github.com/hiall-fyi/tado_ce/issues/54), [#56](https://github.com/hiall-fyi/tado_ce/issues/56)), [@neonsp](https://github.com/neonsp) for AC testing ([#61](https://github.com/hiall-fyi/tado_ce/issues/61), [#44](https://github.com/hiall-fyi/tado_ce/issues/44)), [@colinada](https://github.com/colinada) for multi-TRV fix ([#66](https://github.com/hiall-fyi/tado_ce/issues/66)), and [@hapklaar](https://github.com/hapklaar) for continued AC feedback ([#44](https://github.com/hiall-fyi/tado_ce/issues/44))!
 
 ## [1.8.3] - 2026-01-26
 
