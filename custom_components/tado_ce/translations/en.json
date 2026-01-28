@@ -1,4 +1,14 @@
 {
+  "selector": {
+    "smart_comfort_mode": {
+      "options": {
+        "none": "None (disabled)",
+        "light": "Light",
+        "moderate": "Moderate",
+        "aggressive": "Aggressive"
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -62,7 +72,7 @@
               "home_state_sync_enabled": "Enable Home/Away State Sync",
               "offset_enabled": "Enable Temperature Offset Attribute",
               "schedule_calendar_enabled": "Enable Schedule Calendar",
-              "smart_heating_enabled": "Enable Smart Heating Analytics"
+              "smart_heating_enabled": "Enable Smart Comfort Analytics"
             },
             "data_description": {
               "weather_enabled": "Get outside temperature and solar intensity (+1 API call per quick sync)",
@@ -88,11 +98,11 @@
               "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)"
             }
           },
-          "smart_heating_settings": {
-            "name": "Smart Heating Settings",
+          "smart_comfort_settings": {
+            "name": "Smart Comfort Settings",
             "data": {
               "outdoor_temp_entity": "Outdoor Temperature Entity",
-              "weather_compensation": "Weather Compensation",
+              "smart_comfort_mode": "Smart Comfort Mode",
               "use_feels_like": "Use Feels-Like Temperature",
               "comfort_threshold_heating": "Comfort Threshold (Heating)",
               "comfort_threshold_cooling": "Comfort Threshold (Cooling)",
@@ -100,7 +110,7 @@
             },
             "data_description": {
               "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home, sensor.outdoor_temperature)",
-              "weather_compensation": "Adjust heating rate predictions based on outdoor temperature. Light: subtle adjustment, Moderate: balanced, Aggressive: strong adjustment",
+              "smart_comfort_mode": "Adjusts target temperature based on outdoor temp and humidity",
               "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature for weather compensation",
               "comfort_threshold_heating": "Minimum comfort temperature for zones without TRV (e.g., SU02 thermostat only). Below this = Comfort at Risk",
               "comfort_threshold_cooling": "Maximum comfort temperature for AC zones without explicit target. Above this = Comfort at Risk",

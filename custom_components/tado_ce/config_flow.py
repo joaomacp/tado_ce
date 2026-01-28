@@ -425,12 +425,12 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                     if key in advanced:
                         processed_input[key] = advanced[key]
             
-            # Flatten smart_heating_settings section
-            if 'smart_heating_settings' in user_input:
-                smart_heating = user_input['smart_heating_settings']
-                for key in ['outdoor_temp_entity', 'weather_compensation', 'use_feels_like', 'comfort_threshold_heating', 'comfort_threshold_cooling']:
-                    if key in smart_heating:
-                        processed_input[key] = smart_heating[key]
+            # Flatten smart_comfort_settings section
+            if 'smart_comfort_settings' in user_input:
+                smart_comfort = user_input['smart_comfort_settings']
+                for key in ['outdoor_temp_entity', 'smart_comfort_mode', 'use_feels_like', 'comfort_threshold_heating', 'comfort_threshold_cooling', 'smart_heating_history_days']:
+                    if key in smart_comfort:
+                        processed_input[key] = smart_comfort[key]
             
             # Handle custom day interval
             day_interval_str = processed_input.get('custom_day_interval', '')
@@ -506,20 +506,16 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                     {"collapsed": True},
                 ),
                 
-                # === Smart Heating Settings (collapsed) ===
-                vol.Required("smart_heating_settings"): data_entry_flow.section(
+                # === Smart Comfort Settings (collapsed) ===
+                vol.Required("smart_comfort_settings"): data_entry_flow.section(
                     vol.Schema({
                         vol.Optional('outdoor_temp_entity', default=options.get('outdoor_temp_entity', '')): EntitySelector(
                             EntitySelectorConfig(domain=["sensor", "weather"])
                         ),
-                        vol.Optional('weather_compensation', default=options.get('weather_compensation', 'none')): SelectSelector(
+                        vol.Optional('smart_comfort_mode', default=options.get('smart_comfort_mode', options.get('weather_compensation', 'none'))): SelectSelector(
                             SelectSelectorConfig(
-                                options=[
-                                    {"value": "none", "label": "None"},
-                                    {"value": "light", "label": "Light"},
-                                    {"value": "moderate", "label": "Moderate"},
-                                    {"value": "aggressive", "label": "Aggressive"},
-                                ],
+                                options=["none", "light", "moderate", "aggressive"],
+                                translation_key="smart_comfort_mode",
                                 mode=SelectSelectorMode.DROPDOWN
                             )
                         ),

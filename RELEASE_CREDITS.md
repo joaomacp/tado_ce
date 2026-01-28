@@ -4,7 +4,7 @@
 
 ---
 
-## v1.9.0 (In Development) - Smart Heating Analytics + Bug Fixes
+## v1.9.0 (In Development) - Smart Comfort Analytics + Bug Fixes
 
 ### Bug Reports & Issue Reporters
 

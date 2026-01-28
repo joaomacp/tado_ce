@@ -4,9 +4,9 @@ All notable changes to Tado CE will be documented in this file.
 
 ## [1.9.0-dev] - In Development
 
-**Smart Heating Analytics + Insights** - Complete Smart Heating suite with analytics and predictive insights.
+**Smart Comfort Analytics + Insights** - Complete Smart Comfort suite with analytics and predictive insights for both Heating and AC zones.
 
-### Smart Heating Analytics (Phase 1+2)
+### Smart Comfort Analytics (Phase 1+2)
 - **Heating Rate Sensor** - °C/hour when heating is active
 - **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - **Time to Target Sensor** - Estimated minutes to reach target temperature (zones with TRV only)
@@ -16,9 +16,11 @@ All notable changes to Tado CE will be documented in this file.
 - **Weather Compensation** - Adjust predictions based on outdoor temperature
 - **Unit Conversions** - Automatic conversion for Fahrenheit and various wind speed units
 
-### Smart Heating Insights (Phase 3) - NEW
+### Smart Comfort Insights (Phase 3) - NEW
 - **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
 - **Preheat Advisor** - Suggest optimal preheat start time based on historical warm-up patterns
+- **Smart Comfort Target Sensor** - Compensated target temperature based on outdoor temp + humidity
+- **Smart Comfort Mode** - Preset-based comfort optimization (None/Light/Moderate/Aggressive)
 
 ### Bug Fixes
 - **Fixed API reset detection for 100-call limit** - Dynamic threshold now works with both 5000 and 100 call limits ([#54](https://github.com/hiall-fyi/tado_ce/issues/54))
@@ -31,7 +33,7 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed negative heating rate during active heating** - Heating rate now clamped to >= 0 (sensor lag cannot cause negative rates)
 
 ### Internal Improvements
-- **Smart Heating per-home isolation** - SmartHeatingManager now accessed via `hass.data` instead of global singleton, preparing for multi-home support
+- **Smart Comfort per-home isolation** - SmartHeatingManager now accessed via `hass.data` instead of global singleton, preparing for multi-home support
 
 ## [1.8.3] - 2026-01-26
 

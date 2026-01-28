@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 from homeassistant.config_entries import ConfigEntry
 
-from .const import CONFIG_FILE, WEATHER_COMPENSATION_PRESETS
+from .const import CONFIG_FILE, WEATHER_COMPENSATION_PRESETS, SMART_COMFORT_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -416,15 +416,30 @@ class ConfigurationManager:
         """
         return self._options.get('outdoor_temp_entity', DEFAULT_OUTDOOR_TEMP_ENTITY)
     
+    def get_smart_comfort_mode(self) -> str:
+        """Get the Smart Comfort mode preset.
+        
+        v1.9.0: Comprehensive comfort optimization including:
+        - Outdoor temperature compensation
+        - Humidity adjustment
+        - Preheat duration factors
+        
+        Returns:
+            Preset name: 'none', 'light', 'moderate', or 'aggressive'
+        """
+        # Check new key first, fallback to legacy weather_compensation for backward compatibility
+        return self._options.get('smart_comfort_mode', 
+                                 self._options.get('weather_compensation', DEFAULT_WEATHER_COMPENSATION))
+    
     def get_weather_compensation(self) -> str:
-        """Get the weather compensation preset.
+        """Get the weather compensation preset (legacy, use get_smart_comfort_mode instead).
         
         v1.9.0: Adjusts heating/cooling rate predictions based on outdoor temp.
         
         Returns:
             Preset name: 'none', 'light', 'moderate', or 'aggressive'
         """
-        return self._options.get('weather_compensation', DEFAULT_WEATHER_COMPENSATION)
+        return self.get_smart_comfort_mode()
     
     def get_use_feels_like(self) -> bool:
         """Check if feels-like temperature should be used.

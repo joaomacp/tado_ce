@@ -159,3 +159,63 @@ WEATHER_COMPENSATION_PRESETS = {
     "moderate": (5, 1.2, 10, 0.9),
     "aggressive": (0, 1.4, 10, 0.8),
 }
+
+# Smart Comfort Presets - comprehensive comfort optimization
+# Combines outdoor temp compensation, humidity adjustment, and preheat factors
+SMART_COMFORT_PRESETS = {
+    "none": {
+        # Outdoor temperature compensation
+        "outdoor_cold_threshold": None,  # °C - apply cold offset below this
+        "outdoor_cold_offset": 0.0,      # °C - add to target when cold
+        "outdoor_warm_threshold": None,  # °C - apply warm offset above this
+        "outdoor_warm_offset": 0.0,      # °C - subtract from target when warm
+        "outdoor_shutoff_threshold": None,  # °C - turn off heating above this
+        # Humidity compensation
+        "humidity_high_threshold": 70,   # % - apply high humidity offset above this
+        "humidity_high_offset": 0.0,     # °C - subtract when humid
+        "humidity_low_threshold": 35,    # % - apply low humidity offset below this
+        "humidity_low_offset": 0.0,      # °C - add when dry
+        # Preheat duration factors
+        "preheat_cold_factor": 1.0,      # Multiply preheat time when cold
+        "preheat_warm_factor": 1.0,      # Multiply preheat time when warm
+    },
+    "light": {
+        "outdoor_cold_threshold": 5,
+        "outdoor_cold_offset": 0.5,
+        "outdoor_warm_threshold": 15,
+        "outdoor_warm_offset": 0.5,
+        "outdoor_shutoff_threshold": None,
+        "humidity_high_threshold": 70,
+        "humidity_high_offset": 0.3,
+        "humidity_low_threshold": 35,
+        "humidity_low_offset": 0.3,
+        "preheat_cold_factor": 1.1,
+        "preheat_warm_factor": 0.95,
+    },
+    "moderate": {
+        "outdoor_cold_threshold": 5,
+        "outdoor_cold_offset": 1.0,
+        "outdoor_warm_threshold": 15,
+        "outdoor_warm_offset": 1.0,
+        "outdoor_shutoff_threshold": None,
+        "humidity_high_threshold": 70,
+        "humidity_high_offset": 0.5,
+        "humidity_low_threshold": 35,
+        "humidity_low_offset": 0.5,
+        "preheat_cold_factor": 1.2,
+        "preheat_warm_factor": 0.9,
+    },
+    "aggressive": {
+        "outdoor_cold_threshold": 5,
+        "outdoor_cold_offset": 1.5,
+        "outdoor_warm_threshold": 15,
+        "outdoor_warm_offset": 1.5,
+        "outdoor_shutoff_threshold": 18,  # Turn off heating when outdoor > 18°C
+        "humidity_high_threshold": 70,
+        "humidity_high_offset": 0.5,
+        "humidity_low_threshold": 35,
+        "humidity_low_offset": 0.5,
+        "preheat_cold_factor": 1.4,
+        "preheat_warm_factor": 0.8,
+    },
+}

@@ -1215,12 +1215,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             
             _LOGGER.info(
-                f"Tado CE: Smart Heating 3-tier loading complete - "
+                f"Tado CE: Smart Comfort 3-tier loading complete - "
                 f"cache={cache_readings}, recorder={recorder_readings}, "
                 f"baseline_zones={len(baseline_stats)}"
             )
         
-        _LOGGER.info("Tado CE: Smart Heating Analytics enabled")
+        _LOGGER.info("Tado CE: Smart Comfort Analytics enabled")
     
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
     

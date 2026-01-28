@@ -6,9 +6,9 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v1.9.0 - Smart Heating Analytics + Insights
+## v1.9.0 - Smart Comfort Analytics + Insights
 
-Complete Smart Heating suite with analytics and predictive insights.
+Complete Smart Comfort suite with analytics and predictive insights for both Heating and AC zones.
 
 **Multi-Home Migration:**
 - [x] **Change hub device identifier** - From `tado_ce_hub` to `tado_ce_hub_{home_id}`
@@ -16,7 +16,7 @@ Complete Smart Heating suite with analytics and predictive insights.
 - [x] **Device registry migration** - Existing devices updated automatically
 - [x] **Entity IDs stable** - No entity ID changes for existing users
 
-**Smart Heating Analytics (Phase 1+2):**
+**Smart Comfort Analytics (Phase 1+2):**
 - [x] **Heating Rate Sensor** - °C/hour when heating is active
 - [x] **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - [x] **Time to Target Sensor** - Estimated minutes to reach target temperature
@@ -25,9 +25,11 @@ Complete Smart Heating suite with analytics and predictive insights.
 - [x] **Weather Compensation** - Adjust predictions based on outdoor temperature
 - [x] **2-Tier Data Loading** - Cache file + Recorder history for instant bootstrap
 
-**Smart Heating Insights (Phase 3):**
+**Smart Comfort Insights (Phase 3):**
 - [x] **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
 - [x] **Preheat Advisor** - Suggest optimal preheat time based on historical warm-up patterns
+- [x] **Smart Comfort Target Sensor** - Compensated target temperature based on outdoor temp + humidity
+- [x] **Smart Comfort Mode** - Preset-based comfort optimization (None/Light/Moderate/Aggressive)
 
 **Example Insights:**
 ```

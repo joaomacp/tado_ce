@@ -144,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoHeatingEfficiencySensor(zone_id, zone_name, zone_type),
                             TadoHistoricalTempSensor(zone_id, zone_name, zone_type),
                             TadoPreheatAdvisorSensor(zone_id, zone_name, zone_type),
+                            TadoSmartComfortTargetSensor(zone_id, zone_name, zone_type),
                         ])
                         # Time to Target - only for zones with TRV (heating control)
                         if zone_id in zones_with_trv:
@@ -166,6 +167,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoHeatingEfficiencySensor(zone_id, zone_name, zone_type),
                             TadoHistoricalTempSensor(zone_id, zone_name, zone_type),
                             TadoPreheatAdvisorSensor(zone_id, zone_name, zone_type),
+                            TadoSmartComfortTargetSensor(zone_id, zone_name, zone_type),
                         ])
                 elif zone_type == 'HOT_WATER':
                     # Only create temperature sensor if zone has temperature data
@@ -1214,7 +1216,7 @@ class TadoDeviceConnectionSensor(SensorEntity):
             self._attr_available = False
 
 
-# ============ Smart Heating Sensors (v1.9.0) ============
+# ============ Smart Comfort Sensors (v1.9.0) ============
 
 class TadoHeatingRateSensor(TadoBaseSensor):
     """Heating rate sensor - shows °C/hour when HVAC is active.
@@ -1601,7 +1603,7 @@ class TadoComfortLevelSensor(TadoBaseSensor):
         return 18.0 if self._zone_type == 'HEATING' else 26.0
 
 
-# ============ Smart Heating Insights Sensors (v1.9.0 Phase 3) ============
+# ============ Smart Comfort Insights Sensors (v1.9.0 Phase 3) ============
 
 class TadoHistoricalTempSensor(TadoBaseSensor):
     """Historical temperature comparison sensor.
@@ -1867,3 +1869,201 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
         
         # Fallback defaults
         return 18.0 if self._zone_type == 'HEATING' else 26.0
+
+
+class TadoSmartComfortTargetSensor(TadoBaseSensor):
+    """Smart Comfort Target Temperature sensor.
+    
+    Calculates compensated target temperature based on:
+    - Outdoor temperature (from configured entity)
+    - Indoor humidity
+    - Smart Comfort mode preset
+    
+    State: Compensated target temperature (°C)
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Smart Comfort Target"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_smart_comfort_target"
+        self._attr_native_unit_of_measurement = "°C"
+        self._attr_icon = "mdi:thermometer-auto"
+        self._attr_state_class = "measurement"
+        
+        # Attributes
+        self._base_target: float | None = None
+        self._outdoor_temp: float | None = None
+        self._humidity: float | None = None
+        self._outdoor_adjustment: float = 0.0
+        self._humidity_adjustment: float = 0.0
+        self._mode: str = "none"
+        self._shutoff: bool = False
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "base_target": self._base_target,
+            "outdoor_temperature": self._outdoor_temp,
+            "humidity": self._humidity,
+            "outdoor_adjustment": self._outdoor_adjustment,
+            "humidity_adjustment": self._humidity_adjustment,
+            "total_adjustment": round(self._outdoor_adjustment + self._humidity_adjustment, 1),
+            "smart_comfort_mode": self._mode,
+            "heating_shutoff": self._shutoff,
+            "zone_type": self._zone_type,
+        }
+    
+    @property
+    def icon(self):
+        """Dynamic icon based on state."""
+        if self._shutoff:
+            return "mdi:thermometer-off"
+        if self._outdoor_adjustment > 0 or self._humidity_adjustment > 0:
+            return "mdi:thermometer-plus"
+        if self._outdoor_adjustment < 0 or self._humidity_adjustment < 0:
+            return "mdi:thermometer-minus"
+        return "mdi:thermometer-auto"
+    
+    def update(self):
+        """Update Smart Comfort target temperature."""
+        try:
+            from .config_manager import ConfigurationManager
+            from .const import SMART_COMFORT_PRESETS
+            
+            if not self.hass:
+                self._attr_available = False
+                return
+            
+            # Get config
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            if not entries:
+                self._attr_available = False
+                return
+            
+            config_manager = ConfigurationManager(entries[0])
+            self._mode = config_manager.get_smart_comfort_mode()
+            
+            # If mode is none, just return base target
+            if self._mode == "none":
+                zone_data = self._get_zone_data()
+                if zone_data:
+                    setting = zone_data.get('setting') or {}
+                    temp_data = setting.get('temperature') or {}
+                    self._base_target = temp_data.get('celsius')
+                    self._attr_native_value = self._base_target
+                    self._outdoor_adjustment = 0.0
+                    self._humidity_adjustment = 0.0
+                    self._shutoff = False
+                    self._attr_available = self._base_target is not None
+                else:
+                    self._attr_available = False
+                return
+            
+            # Get preset settings
+            preset = SMART_COMFORT_PRESETS.get(self._mode, SMART_COMFORT_PRESETS["none"])
+            
+            # Get zone data
+            zone_data = self._get_zone_data()
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            # Get base target temperature
+            setting = zone_data.get('setting') or {}
+            temp_data = setting.get('temperature') or {}
+            self._base_target = temp_data.get('celsius')
+            
+            if self._base_target is None:
+                # No target set (heating off)
+                self._attr_native_value = None
+                self._attr_available = True
+                self._outdoor_adjustment = 0.0
+                self._humidity_adjustment = 0.0
+                self._shutoff = False
+                return
+            
+            # Get humidity from zone
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            humidity_data = sensor_data.get('humidity') or {}
+            self._humidity = humidity_data.get('percentage')
+            
+            # Get outdoor temperature
+            outdoor_entity = config_manager.get_outdoor_temp_entity()
+            self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity, config_manager.get_use_feels_like())
+            
+            # Calculate outdoor adjustment
+            self._outdoor_adjustment = 0.0
+            self._shutoff = False
+            
+            if self._outdoor_temp is not None:
+                # Check shutoff threshold first
+                shutoff_threshold = preset.get("outdoor_shutoff_threshold")
+                if shutoff_threshold is not None and self._outdoor_temp > shutoff_threshold:
+                    self._shutoff = True
+                    self._attr_native_value = 0.0
+                    self._attr_available = True
+                    return
+                
+                # Cold adjustment
+                cold_threshold = preset.get("outdoor_cold_threshold")
+                if cold_threshold is not None and self._outdoor_temp < cold_threshold:
+                    self._outdoor_adjustment = preset.get("outdoor_cold_offset", 0.0)
+                
+                # Warm adjustment
+                warm_threshold = preset.get("outdoor_warm_threshold")
+                if warm_threshold is not None and self._outdoor_temp > warm_threshold:
+                    self._outdoor_adjustment = -preset.get("outdoor_warm_offset", 0.0)
+            
+            # Calculate humidity adjustment
+            self._humidity_adjustment = 0.0
+            
+            if self._humidity is not None:
+                # High humidity adjustment
+                high_threshold = preset.get("humidity_high_threshold", 70)
+                if self._humidity > high_threshold:
+                    self._humidity_adjustment = -preset.get("humidity_high_offset", 0.0)
+                
+                # Low humidity adjustment
+                low_threshold = preset.get("humidity_low_threshold", 35)
+                if self._humidity < low_threshold:
+                    self._humidity_adjustment = preset.get("humidity_low_offset", 0.0)
+            
+            # Calculate final target
+            final_target = self._base_target + self._outdoor_adjustment + self._humidity_adjustment
+            final_target = max(0.0, round(final_target, 1))  # Don't go below 0
+            
+            self._attr_native_value = final_target
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update Smart Comfort target for zone {self._zone_id}: {e}")
+            self._attr_available = False
+    
+    def _get_outdoor_temperature(self, entity_id: str, use_feels_like: bool) -> float | None:
+        """Get outdoor temperature from configured entity."""
+        if not entity_id or not self.hass:
+            return None
+        
+        try:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ('unknown', 'unavailable'):
+                return None
+            
+            # Check if it's a weather entity
+            if entity_id.startswith('weather.'):
+                if use_feels_like:
+                    # Try apparent_temperature first
+                    apparent = state.attributes.get('apparent_temperature')
+                    if apparent is not None:
+                        return float(apparent)
+                # Fall back to temperature
+                temp = state.attributes.get('temperature')
+                if temp is not None:
+                    return float(temp)
+            else:
+                # Regular sensor entity
+                return float(state.state)
+        except (ValueError, TypeError):
+            pass
+        
+        return None

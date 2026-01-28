@@ -275,9 +275,9 @@ For air conditioning zones, climate entities support additional features:
 
 ---
 
-## Smart Heating Analytics (v1.9.0)
+## Smart Comfort Analytics (v1.9.0)
 
-**Optional feature** - Enable in integration options under "Smart Heating Analytics".
+**Optional feature** - Enable in integration options under "Smart Comfort Settings".
 
 Provides intelligent heating insights based on temperature history analysis.
 
