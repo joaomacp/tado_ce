@@ -139,10 +139,18 @@ class ZoneHistory:
         
         Uses linear regression on temperature readings where is_heating=True.
         Falls back to baseline rate from long-term statistics if not enough data.
-        Returns positive value for heating, negative for cooling (AC).
+        
+        Returns:
+            Positive value for heating rate, 0 if no change detected.
+            Negative rates are clamped to 0 (sensor lag, not actual cooling).
         """
         heating_readings = [r for r in self.readings if r.is_heating]
         rate = self._calculate_rate(heating_readings)
+        
+        # Clamp negative rates to 0 - heating cannot cause temperature drop
+        # Negative values indicate sensor lag (Tado sensors update slowly)
+        if rate is not None and rate < 0:
+            rate = 0.0
         
         # Fallback to baseline if no real-time rate available
         if rate is None and self._baseline_heating_rate is not None:
@@ -151,14 +159,22 @@ class ZoneHistory:
         return rate
     
     def get_cooling_rate(self) -> Optional[float]:
-        """Calculate cooling rate (°C/hour) when HVAC is off.
+        """Calculate cooling rate (°C/hour) when HVAC is off (heat loss).
         
         Uses linear regression on temperature readings where is_heating=False.
         Falls back to baseline rate from long-term statistics if not enough data.
-        Returns negative value (temperature dropping) typically.
+        
+        Returns:
+            Negative value for cooling/heat loss rate, 0 if no change detected.
+            Positive rates are clamped to 0 (sensor lag or external heat source).
         """
         cooling_readings = [r for r in self.readings if not r.is_heating]
         rate = self._calculate_rate(cooling_readings)
+        
+        # Clamp positive rates to 0 - cooling/heat loss cannot cause temperature rise
+        # Positive values indicate sensor lag or external heat source (sun, etc.)
+        if rate is not None and rate > 0:
+            rate = 0.0
         
         # Fallback to baseline if no real-time rate available
         if rate is None and self._baseline_cooling_rate is not None:

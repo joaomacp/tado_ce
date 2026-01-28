@@ -23,6 +23,7 @@ All notable changes to Tado CE will be documented in this file.
 - **AC turn-off debug logging** - Added detailed logging to diagnose intermittent restore-to-ON issue ([#44](https://github.com/hiall-fyi/tado_ce/issues/44))
 - **Optimized heating zone API calls** - Setting temperature with hvac_mode now uses single API call instead of two (saves 1% quota per action)
 - **Fixed AC HEAT_COOL mode hvac_action** - Optimistic updates now correctly set hvac_action to IDLE for HEAT_COOL mode (Tado AUTO)
+- **Fixed negative heating rate during active heating** - Heating rate now clamped to >= 0 (sensor lag cannot cause negative rates)
 
 ### Internal Improvements
 - **Smart Heating per-home isolation** - SmartHeatingManager now accessed via `hass.data` instead of global singleton, preparing for multi-home support
