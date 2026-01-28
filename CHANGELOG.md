@@ -4,9 +4,9 @@ All notable changes to Tado CE will be documented in this file.
 
 ## [1.9.0-dev] - In Development
 
-**Smart Heating Analytics + Bug Fixes** - Intelligent heating predictions and community-reported fixes.
+**Smart Heating Analytics + Insights** - Complete Smart Heating suite with analytics and predictive insights.
 
-### Smart Heating Analytics
+### Smart Heating Analytics (Phase 1+2)
 - **Heating Rate Sensor** - °C/hour when heating is active
 - **Cooling Rate Sensor** - °C/hour when heating is off (heat loss rate)
 - **Time to Target Sensor** - Estimated minutes to reach target temperature (zones with TRV only)
@@ -15,6 +15,10 @@ All notable changes to Tado CE will be documented in this file.
 - **Configurable Comfort Thresholds** - Set min/max comfort temperatures for zones without TRV
 - **Weather Compensation** - Adjust predictions based on outdoor temperature
 - **Unit Conversions** - Automatic conversion for Fahrenheit and various wind speed units
+
+### Smart Heating Insights (Phase 3) - NEW
+- **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
+- **Preheat Advisor** - Suggest optimal preheat start time based on historical warm-up patterns
 
 ### Bug Fixes
 - **Fixed API reset detection for 100-call limit** - Dynamic threshold now works with both 5000 and 100 call limits ([#54](https://github.com/hiall-fyi/tado_ce/issues/54))

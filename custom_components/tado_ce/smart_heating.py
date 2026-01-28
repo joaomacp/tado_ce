@@ -12,6 +12,8 @@ This module can bootstrap from HA recorder history on startup,
 allowing immediate rate calculations without waiting for data collection.
 Data is also persisted to file as backup for when recorder is unavailable.
 """
+from __future__ import annotations
+
 import json
 import logging
 import math
@@ -58,6 +60,129 @@ CACHE_SAVE_INTERVAL_MINUTES = 15  # Save cache every 15 minutes
 
 # WEATHER_COMPENSATION_PRESETS imported from const.py
 
+# Day type mapping for schedule parsing
+DAY_TYPE_MAP = {
+    0: "MONDAY",
+    1: "TUESDAY", 
+    2: "WEDNESDAY",
+    3: "THURSDAY",
+    4: "FRIDAY",
+    5: "SATURDAY",
+    6: "SUNDAY",
+}
+
+
+@dataclass
+class NextScheduleBlock:
+    """Next scheduled temperature change."""
+    start_time: datetime  # When this block starts
+    target_temp: Optional[float]  # Target temperature (None if OFF)
+    is_heating_on: bool  # Whether heating will be ON
+    block_end_time: datetime  # When this block ends
+    
+    def to_dict(self) -> dict:
+        return {
+            "start_time": self.start_time.isoformat(),
+            "target_temp": self.target_temp,
+            "is_heating_on": self.is_heating_on,
+            "block_end_time": self.block_end_time.isoformat(),
+        }
+
+
+def get_next_schedule_change(zone_id: str, current_time: Optional[datetime] = None) -> Optional[NextScheduleBlock]:
+    """Find the next schedule block that requires temperature change.
+    
+    Parses the zone's schedule and finds the next block where:
+    1. Heating turns ON with a target temperature, OR
+    2. Target temperature increases (needs preheat)
+    
+    Args:
+        zone_id: Zone ID to look up schedule for
+        current_time: Current time (defaults to now)
+        
+    Returns:
+        NextScheduleBlock with next change info, or None if no schedule/no upcoming change
+    """
+    from .data_loader import get_zone_schedule
+    
+    if current_time is None:
+        current_time = datetime.now()
+    
+    schedule = get_zone_schedule(zone_id)
+    if not schedule:
+        _LOGGER.debug(f"No schedule found for zone {zone_id}")
+        return None
+    
+    blocks = schedule.get("blocks", {})
+    schedule_type = schedule.get("type", "ONE_DAY")
+    
+    # Get today's day name
+    today_weekday = current_time.weekday()
+    today_name = DAY_TYPE_MAP.get(today_weekday, "MONDAY")
+    
+    # Determine which day type to use based on schedule type
+    if schedule_type == "ONE_DAY":
+        # ONE_DAY schedules use MONDAY_TO_SUNDAY for all days
+        day_blocks = blocks.get("MONDAY_TO_SUNDAY", [])
+    elif schedule_type == "THREE_DAY":
+        # THREE_DAY: MONDAY_TO_FRIDAY, SATURDAY, SUNDAY
+        if today_weekday < 5:
+            day_blocks = blocks.get("MONDAY_TO_FRIDAY", [])
+        elif today_weekday == 5:
+            day_blocks = blocks.get("SATURDAY", [])
+        else:
+            day_blocks = blocks.get("SUNDAY", [])
+    else:
+        # SEVEN_DAY: Each day has its own schedule
+        day_blocks = blocks.get(today_name, [])
+    
+    if not day_blocks:
+        _LOGGER.debug(f"No blocks found for zone {zone_id} on {today_name}")
+        return None
+    
+    current_time_str = current_time.strftime("%H:%M")
+    
+    # Find the next block that starts after current time
+    for block in day_blocks:
+        block_start = block.get("start", "00:00")
+        block_end = block.get("end", "00:00")
+        setting = block.get("setting", {})
+        power = setting.get("power", "OFF")
+        temp_data = setting.get("temperature")
+        
+        # Skip if block has already started
+        if block_start <= current_time_str:
+            continue
+        
+        # Parse start time into datetime
+        start_hour, start_min = map(int, block_start.split(":"))
+        start_datetime = current_time.replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
+        
+        # Parse end time
+        end_hour, end_min = map(int, block_end.split(":"))
+        if block_end == "00:00":
+            # Midnight means end of day
+            end_datetime = (current_time + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            end_datetime = current_time.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
+        
+        # Get target temperature
+        target_temp = None
+        if power == "ON" and temp_data:
+            target_temp = temp_data.get("celsius")
+        
+        return NextScheduleBlock(
+            start_time=start_datetime,
+            target_temp=target_temp,
+            is_heating_on=(power == "ON"),
+            block_end_time=end_datetime,
+        )
+    
+    # No more blocks today - check tomorrow's first block
+    # For simplicity, return None and let the sensor handle "no upcoming change"
+    _LOGGER.debug(f"No more schedule blocks today for zone {zone_id}")
+    return None
+
 
 @dataclass
 class TemperatureReading:
@@ -85,6 +210,44 @@ class TemperatureReading:
             is_heating=data["is_heating"],
             target_temperature=data.get("target_temperature")
         )
+
+
+@dataclass
+class HistoricalComparison:
+    """Result of historical temperature comparison."""
+    current_temp: float
+    historical_avg: float
+    difference: float  # current - historical (positive = warmer than usual)
+    sample_count: int  # Number of historical data points used
+    comparison_window_minutes: int  # Time window used for comparison (e.g., 30 min)
+    
+    def to_summary(self) -> str:
+        """Generate human-readable summary."""
+        if abs(self.difference) < 0.3:
+            return f"Normal (avg {self.historical_avg:.1f}°C)"
+        elif self.difference > 0:
+            return f"{self.difference:+.1f}°C warmer than usual"
+        else:
+            return f"{self.difference:.1f}°C cooler than usual"
+
+
+@dataclass
+class PreheatAdvice:
+    """Preheat timing recommendation."""
+    recommended_start_time: datetime  # When to start heating
+    target_time: datetime  # When target should be reached
+    target_temp: float
+    current_temp: float
+    estimated_duration_minutes: int  # How long heating will take
+    heating_rate: float  # °C/hour used for calculation
+    confidence: str  # "high", "medium", "low" based on data quality
+    
+    def to_summary(self) -> str:
+        """Generate human-readable summary."""
+        if self.estimated_duration_minutes == 0:
+            return f"Already at {self.target_temp:.1f}°C (no preheat needed)"
+        start_str = self.recommended_start_time.strftime("%H:%M")
+        return f"Start at {start_str} ({self.estimated_duration_minutes} min to reach {self.target_temp:.1f}°C)"
 
 
 class ZoneHistory:
@@ -135,28 +298,45 @@ class ZoneHistory:
         self.readings = [r for r in self.readings if r.timestamp > cutoff]
     
     def get_heating_rate(self) -> Optional[float]:
-        """Calculate heating rate (°C/hour) when HVAC is active.
+        """Calculate heating rate (°C/hour) from actual temperature rise.
         
-        Uses linear regression on temperature readings where is_heating=True.
-        Falls back to baseline rate from long-term statistics if not enough data.
+        Uses segment-based analysis to find periods of actual temperature rise.
+        This works regardless of is_heating flag - we look at actual temp changes.
+        
+        Strategy:
+        1. First try readings where is_heating=True (traditional HVAC control)
+        2. If no heating readings, use ALL readings to find rising segments
+           (supports Automation-controlled setups where is_heating may be False)
+        3. Falls back to baseline rate from long-term statistics if not enough data
         
         Returns:
-            Positive value for heating rate, 0 if no change detected.
-            Negative rates are clamped to 0 (sensor lag, not actual cooling).
+            Positive value for heating rate, or None if insufficient data.
         """
+        # Strategy 1: Try readings where is_heating=True first
         heating_readings = [r for r in self.readings if r.is_heating]
-        rate = self._calculate_rate(heating_readings)
+        rate = self._calculate_heating_rate_segments(heating_readings)
         
-        # Clamp negative rates to 0 - heating cannot cause temperature drop
-        # Negative values indicate sensor lag (Tado sensors update slowly)
-        if rate is not None and rate < 0:
-            rate = 0.0
+        if rate is not None and rate > 0.01:
+            self._last_heating_rate = rate
+            self._rate_updated_at = datetime.now()
+            return rate
         
-        # Fallback to baseline if no real-time rate available
-        if rate is None and self._baseline_heating_rate is not None:
+        # Strategy 2: No heating readings - use ALL readings to find rising segments
+        # This supports setups where heating is controlled by HA Automation
+        # and is_heating flag may always be False
+        if len(heating_readings) == 0 and len(self.readings) >= MIN_DATA_POINTS:
+            rate = self._calculate_heating_rate_segments(self.readings)
+            if rate is not None and rate > 0.01:
+                self._last_heating_rate = rate
+                self._rate_updated_at = datetime.now()
+                return rate
+        
+        # Strategy 3: Fallback to baseline if no valid rate from segments
+        if self._baseline_heating_rate is not None:
             return self._baseline_heating_rate
         
-        return rate
+        # No data available - return None (don't use magic numbers)
+        return None
     
     def get_cooling_rate(self) -> Optional[float]:
         """Calculate cooling rate (°C/hour) when HVAC is off (heat loss).
@@ -181,6 +361,72 @@ class ZoneHistory:
             return self._baseline_cooling_rate
         
         return rate
+    
+    def _calculate_heating_rate_segments(self, readings: list[TemperatureReading]) -> Optional[float]:
+        """Calculate heating rate by finding segments of temperature rise.
+        
+        Instead of using all readings, this method:
+        1. Finds consecutive readings where temperature is rising
+        2. Calculates rate for each rising segment
+        3. Returns the average of valid segments
+        
+        This is more accurate than linear regression over all heating readings,
+        because it ignores periods where temperature is stable or falling
+        (which happens when target is reached).
+        
+        Args:
+            readings: List of heating readings (is_heating=True)
+            
+        Returns:
+            Average heating rate in °C/hour, or None if insufficient data
+        """
+        if len(readings) < MIN_DATA_POINTS:
+            return None
+        
+        # Sort by timestamp and deduplicate
+        sorted_readings = sorted(readings, key=lambda r: r.timestamp)
+        
+        # Deduplicate readings with same timestamp
+        deduped = []
+        last_ts = None
+        for r in sorted_readings:
+            if last_ts is None or r.timestamp != last_ts:
+                deduped.append(r)
+                last_ts = r.timestamp
+        
+        if len(deduped) < MIN_DATA_POINTS:
+            return None
+        
+        # Find rising segments
+        segment_rates = []
+        segment_start = 0
+        
+        for i in range(1, len(deduped)):
+            prev = deduped[i - 1]
+            curr = deduped[i]
+            
+            time_diff_hours = (curr.timestamp - prev.timestamp).total_seconds() / 3600
+            temp_diff = curr.temperature - prev.temperature
+            
+            # Skip if time gap is too large (> 2 hours) - not continuous
+            if time_diff_hours > 2:
+                segment_start = i
+                continue
+            
+            # Check if temperature is rising
+            if temp_diff > 0.05 and time_diff_hours > 0.01:  # At least 0.05°C rise
+                rate = temp_diff / time_diff_hours
+                # Sanity check: rate should be between 0.1 and 10.0 °C/hour
+                # TRV heating can be quite fast (5-8°C/h) when starting from cold
+                if 0.1 <= rate <= 10.0:
+                    segment_rates.append(rate)
+        
+        if not segment_rates:
+            return None
+        
+        # Return average of segment rates
+        avg_rate = sum(segment_rates) / len(segment_rates)
+        return round(avg_rate, 2)
     
     def _calculate_rate(self, readings: list[TemperatureReading]) -> Optional[float]:
         """Calculate temperature rate using linear regression.
@@ -290,6 +536,148 @@ class ZoneHistory:
         predicted = current_temp + (rate * hours)
         
         return round(predicted, 1)
+    
+    def get_historical_comparison(
+        self,
+        current_temp: float,
+        comparison_window_minutes: int = 30
+    ) -> Optional[HistoricalComparison]:
+        """Compare current temperature to historical average at same time of day.
+        
+        Looks at readings from the past 7 days at the same time (±window) and
+        calculates the average temperature for comparison.
+        
+        Args:
+            current_temp: Current temperature to compare
+            comparison_window_minutes: Time window in minutes (default ±30 min)
+            
+        Returns:
+            HistoricalComparison with analysis, or None if insufficient data
+        """
+        if len(self.readings) < MIN_DATA_POINTS:
+            return None
+        
+        now = datetime.now()
+        current_time_minutes = now.hour * 60 + now.minute
+        
+        # Collect readings from past days at similar time
+        historical_temps = []
+        cutoff = now - timedelta(days=self._history_days)
+        
+        for reading in self.readings:
+            # Skip today's readings
+            if reading.timestamp.date() == now.date():
+                continue
+            
+            # Skip readings older than history window
+            if reading.timestamp < cutoff:
+                continue
+            
+            # Check if reading is within time window
+            reading_time_minutes = reading.timestamp.hour * 60 + reading.timestamp.minute
+            time_diff = abs(reading_time_minutes - current_time_minutes)
+            
+            # Handle midnight wraparound
+            if time_diff > 720:  # More than 12 hours
+                time_diff = 1440 - time_diff
+            
+            if time_diff <= comparison_window_minutes:
+                historical_temps.append(reading.temperature)
+        
+        if len(historical_temps) < 2:
+            return None
+        
+        historical_avg = sum(historical_temps) / len(historical_temps)
+        difference = current_temp - historical_avg
+        
+        return HistoricalComparison(
+            current_temp=round(current_temp, 1),
+            historical_avg=round(historical_avg, 1),
+            difference=round(difference, 1),
+            sample_count=len(historical_temps),
+            comparison_window_minutes=comparison_window_minutes
+        )
+    
+    def get_preheat_advice(
+        self,
+        target_temp: float,
+        target_time: datetime,
+        current_temp: Optional[float] = None
+    ) -> Optional[PreheatAdvice]:
+        """Calculate recommended preheat start time.
+        
+        Based on historical heating rate, calculates when heating should start
+        to reach target temperature by the specified time.
+        
+        Args:
+            target_temp: Desired temperature
+            target_time: When target should be reached
+            current_temp: Current temperature (uses latest reading if not provided)
+            
+        Returns:
+            PreheatAdvice with recommendation, or None if cannot calculate
+        """
+        # Get current temperature
+        if current_temp is None:
+            if not self.readings:
+                return None
+            current_temp = self.readings[-1].temperature
+        
+        # No preheating needed if already at or above target
+        if current_temp >= target_temp:
+            return PreheatAdvice(
+                recommended_start_time=datetime.now(),
+                target_time=target_time,
+                target_temp=target_temp,
+                current_temp=current_temp,
+                estimated_duration_minutes=0,
+                heating_rate=0,
+                confidence="high"
+            )
+        
+        # Get heating rate
+        heating_rate = self.get_heating_rate()
+        
+        # Determine confidence based on data quality
+        heating_readings = [r for r in self.readings if r.is_heating]
+        if heating_rate is None:
+            # Try baseline rate
+            if self._baseline_heating_rate is not None:
+                heating_rate = self._baseline_heating_rate
+                confidence = "low"
+            else:
+                return None
+        elif len(heating_readings) >= 10:
+            confidence = "high"
+        elif len(heating_readings) >= 5:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        
+        # Avoid division by zero
+        if heating_rate <= 0.01:
+            return None
+        
+        # Calculate duration needed
+        temp_diff = target_temp - current_temp
+        hours_needed = temp_diff / heating_rate
+        minutes_needed = int(hours_needed * 60)
+        
+        # Cap at reasonable maximum (4 hours)
+        minutes_needed = min(minutes_needed, 240)
+        
+        # Calculate start time
+        recommended_start = target_time - timedelta(minutes=minutes_needed)
+        
+        return PreheatAdvice(
+            recommended_start_time=recommended_start,
+            target_time=target_time,
+            target_temp=target_temp,
+            current_temp=current_temp,
+            estimated_duration_minutes=minutes_needed,
+            heating_rate=heating_rate,
+            confidence=confidence
+        )
 
 
 class SmartHeatingManager:
@@ -584,6 +972,52 @@ class SmartHeatingManager:
             return predicted < (target_temp - 0.5)
         else:
             return predicted > (target_temp + 0.5)
+    
+    def get_historical_comparison(
+        self,
+        zone_id: str,
+        current_temp: float,
+        comparison_window_minutes: int = 30
+    ) -> Optional[HistoricalComparison]:
+        """Get historical temperature comparison for a zone.
+        
+        Args:
+            zone_id: Zone identifier
+            current_temp: Current temperature to compare
+            comparison_window_minutes: Time window in minutes (default ±30 min)
+            
+        Returns:
+            HistoricalComparison with analysis, or None if insufficient data
+        """
+        if zone_id not in self._zones:
+            return None
+        return self._zones[zone_id].get_historical_comparison(
+            current_temp, comparison_window_minutes
+        )
+    
+    def get_preheat_advice(
+        self,
+        zone_id: str,
+        target_temp: float,
+        target_time: datetime,
+        current_temp: Optional[float] = None
+    ) -> Optional[PreheatAdvice]:
+        """Get preheat timing recommendation for a zone.
+        
+        Args:
+            zone_id: Zone identifier
+            target_temp: Desired temperature
+            target_time: When target should be reached
+            current_temp: Current temperature (uses latest reading if not provided)
+            
+        Returns:
+            PreheatAdvice with recommendation, or None if cannot calculate
+        """
+        if zone_id not in self._zones:
+            return None
+        return self._zones[zone_id].get_preheat_advice(
+            target_temp, target_time, current_temp
+        )
     
     def get_stats(self) -> dict:
         """Get statistics about tracked zones."""

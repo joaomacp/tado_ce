@@ -142,6 +142,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoCoolingRateSensor(zone_id, zone_name, zone_type),
                             TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                             TadoHeatingEfficiencySensor(zone_id, zone_name, zone_type),
+                            TadoHistoricalTempSensor(zone_id, zone_name, zone_type),
+                            TadoPreheatAdvisorSensor(zone_id, zone_name, zone_type),
                         ])
                         # Time to Target - only for zones with TRV (heating control)
                         if zone_id in zones_with_trv:
@@ -162,6 +164,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoTimeToTargetSensor(zone_id, zone_name, zone_type),
                             TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                             TadoHeatingEfficiencySensor(zone_id, zone_name, zone_type),
+                            TadoHistoricalTempSensor(zone_id, zone_name, zone_type),
+                            TadoPreheatAdvisorSensor(zone_id, zone_name, zone_type),
                         ])
                 elif zone_type == 'HOT_WATER':
                     # Only create temperature sensor if zone has temperature data
@@ -1249,10 +1253,14 @@ class TadoHeatingRateSensor(TadoBaseSensor):
             if rate is not None:
                 self._attr_native_value = rate
                 self._attr_available = True
-                # Get data points count
+                # Get data points count - show total readings used for rate calculation
                 zone = manager.get_zone(self._zone_id)
                 heating_readings = [r for r in zone.readings if r.is_heating]
-                self._data_points = len(heating_readings)
+                # If no heating readings, we used ALL readings (Automation-controlled setup)
+                if len(heating_readings) == 0:
+                    self._data_points = len(zone.readings)
+                else:
+                    self._data_points = len(heating_readings)
             else:
                 self._attr_native_value = None
                 self._attr_available = False
@@ -1572,6 +1580,274 @@ class TadoComfortLevelSensor(TadoBaseSensor):
             
         except Exception as e:
             _LOGGER.debug(f"Failed to update comfort status for zone {self._zone_id}: {e}")
+            self._attr_available = False
+    
+    def _get_config_threshold(self) -> float:
+        """Get comfort threshold from config, with fallback defaults."""
+        try:
+            if self.hass:
+                from .config_manager import ConfigurationManager
+                entries = self.hass.config_entries.async_entries(DOMAIN)
+                if entries:
+                    config_manager = ConfigurationManager(entries[0])
+                    if self._zone_type == 'HEATING':
+                        return config_manager.get_comfort_threshold_heating()
+                    else:
+                        return config_manager.get_comfort_threshold_cooling()
+        except Exception as e:
+            _LOGGER.debug(f"Could not get comfort threshold from config, using default: {e}")
+        
+        # Fallback defaults
+        return 18.0 if self._zone_type == 'HEATING' else 26.0
+
+
+# ============ Smart Heating Insights Sensors (v1.9.0 Phase 3) ============
+
+class TadoHistoricalTempSensor(TadoBaseSensor):
+    """Historical temperature comparison sensor.
+    
+    Compares current temperature to the 7-day average at the same time of day.
+    Helps identify unusual temperature patterns.
+    
+    State: Difference from historical average (e.g., "+1.2" or "-0.8")
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Historical Comparison"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_historical_comparison"
+        self._attr_native_unit_of_measurement = "°C"
+        self._attr_icon = "mdi:chart-timeline-variant"
+        self._attr_state_class = "measurement"
+        
+        # Attributes
+        self._current_temp: float | None = None
+        self._historical_avg: float | None = None
+        self._sample_count: int = 0
+        self._summary: str = ""
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "current_temperature": self._current_temp,
+            "historical_average": self._historical_avg,
+            "sample_count": self._sample_count,
+            "summary": self._summary,
+            "zone_type": self._zone_type,
+        }
+    
+    @property
+    def icon(self):
+        """Dynamic icon based on comparison."""
+        if self._attr_native_value is None:
+            return "mdi:chart-timeline-variant"
+        elif self._attr_native_value > 0.5:
+            return "mdi:thermometer-chevron-up"
+        elif self._attr_native_value < -0.5:
+            return "mdi:thermometer-chevron-down"
+        return "mdi:thermometer-check"
+    
+    def update(self):
+        """Update historical comparison from SmartHeatingManager."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get('smart_heating_manager') if self.hass else None
+            
+            if not manager or not manager.is_enabled:
+                self._attr_available = False
+                return
+            
+            # Get current temperature from zone data
+            zone_data = self._get_zone_data()
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            self._current_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            
+            if self._current_temp is None:
+                self._attr_available = False
+                return
+            
+            # Get historical comparison
+            comparison = manager.get_historical_comparison(
+                self._zone_id,
+                self._current_temp
+            )
+            
+            if comparison is None:
+                self._attr_native_value = None
+                self._attr_available = False
+                self._historical_avg = None
+                self._sample_count = 0
+                self._summary = "Insufficient data"
+                return
+            
+            self._attr_native_value = comparison.difference
+            self._historical_avg = comparison.historical_avg
+            self._sample_count = comparison.sample_count
+            self._summary = comparison.to_summary()
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update historical comparison for zone {self._zone_id}: {e}")
+            self._attr_available = False
+
+
+class TadoPreheatAdvisorSensor(TadoBaseSensor):
+    """Preheat timing advisor sensor.
+    
+    Suggests optimal preheat start time based on historical heating rates.
+    Uses the next scheduled target temperature from Tado schedule.
+    
+    State: Recommended start time (e.g., "06:15")
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Preheat Advisor"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_preheat_advisor"
+        self._attr_icon = "mdi:clock-start"
+        
+        # Attributes
+        self._current_temp: float | None = None
+        self._target_temp: float | None = None
+        self._target_time: str | None = None
+        self._duration_minutes: int | None = None
+        self._heating_rate: float | None = None
+        self._confidence: str = "unknown"
+        self._summary: str = ""
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "current_temperature": self._current_temp,
+            "target_temperature": self._target_temp,
+            "target_time": self._target_time,
+            "duration_minutes": self._duration_minutes,
+            "heating_rate": self._heating_rate,
+            "confidence": self._confidence,
+            "summary": self._summary,
+            "zone_type": self._zone_type,
+        }
+    
+    @property
+    def icon(self):
+        """Dynamic icon based on confidence."""
+        if self._confidence == "high":
+            return "mdi:clock-check"
+        elif self._confidence == "medium":
+            return "mdi:clock-alert"
+        elif self._confidence == "low":
+            return "mdi:clock-outline"
+        elif self._confidence == "no_schedule":
+            return "mdi:calendar-remove"
+        elif self._confidence == "insufficient_data":
+            return "mdi:database-off"
+        return "mdi:clock-start"
+    
+    def update(self):
+        """Update preheat advice based on schedule and heating rate.
+        
+        Logic:
+        1. Get next schedule block from schedules.json
+        2. If next block has heating ON with target temp > current temp, calculate preheat time
+        3. If already at or above target, show "Ready"
+        4. If no schedule or heating OFF, show appropriate status
+        """
+        try:
+            from .smart_heating import get_next_schedule_change
+            from datetime import datetime
+            
+            manager = self.hass.data.get(DOMAIN, {}).get('smart_heating_manager') if self.hass else None
+            
+            if not manager or not manager.is_enabled:
+                self._attr_available = False
+                return
+            
+            # Get current temperature from zone data
+            zone_data = self._get_zone_data()
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            self._current_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            
+            if self._current_temp is None:
+                self._attr_available = False
+                return
+            
+            # Get next schedule change from schedules.json
+            next_block = get_next_schedule_change(self._zone_id)
+            
+            if next_block is None:
+                # No schedule data or no more blocks today
+                self._attr_native_value = "No schedule"
+                self._attr_available = True
+                self._target_temp = None
+                self._target_time = None
+                self._duration_minutes = None
+                self._heating_rate = None
+                self._confidence = "no_schedule"
+                self._summary = "No upcoming schedule changes today"
+                return
+            
+            # Check if next block has heating ON
+            if not next_block.is_heating_on or next_block.target_temp is None:
+                # Next block is heating OFF
+                self._attr_native_value = "Heating OFF"
+                self._attr_available = True
+                self._target_temp = None
+                self._target_time = next_block.start_time.strftime("%H:%M")
+                self._duration_minutes = 0
+                self._heating_rate = None
+                self._confidence = "high"
+                self._summary = f"Heating turns OFF at {self._target_time}"
+                return
+            
+            self._target_temp = next_block.target_temp
+            self._target_time = next_block.start_time.strftime("%H:%M")
+            
+            # Check if already at or above target
+            if self._current_temp >= self._target_temp:
+                self._attr_native_value = "Ready"
+                self._attr_available = True
+                self._duration_minutes = 0
+                self._heating_rate = None
+                self._confidence = "high"
+                self._summary = f"Already at {self._target_temp:.1f}°C (no preheat needed)"
+                return
+            
+            # Need to preheat - calculate timing
+            advice = manager.get_preheat_advice(
+                self._zone_id,
+                self._target_temp,
+                next_block.start_time,
+                self._current_temp
+            )
+            
+            if advice is None:
+                # Not enough data to calculate heating rate
+                self._attr_native_value = "Insufficient data"
+                self._attr_available = True
+                self._duration_minutes = None
+                self._heating_rate = None
+                self._confidence = "insufficient_data"
+                temp_diff = self._target_temp - self._current_temp
+                self._summary = f"Need +{temp_diff:.1f}°C by {self._target_time} (no heating history)"
+                return
+            
+            # We have a valid preheat recommendation
+            self._attr_native_value = advice.recommended_start_time.strftime("%H:%M")
+            self._duration_minutes = advice.estimated_duration_minutes
+            self._heating_rate = advice.heating_rate
+            self._confidence = advice.confidence
+            self._summary = advice.to_summary()
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update preheat advice for zone {self._zone_id}: {e}")
             self._attr_available = False
     
     def _get_config_threshold(self) -> float:

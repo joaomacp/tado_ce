@@ -6,9 +6,9 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v1.9.0 - Hub Device Migration + Smart Heating Analytics
+## v1.9.0 - Smart Heating Analytics + Insights
 
-Hub device identifier migration plus intelligent heating analytics.
+Complete Smart Heating suite with analytics and predictive insights.
 
 **Multi-Home Migration:**
 - [x] **Change hub device identifier** - From `tado_ce_hub` to `tado_ce_hub_{home_id}`
@@ -25,6 +25,17 @@ Hub device identifier migration plus intelligent heating analytics.
 - [x] **Weather Compensation** - Adjust predictions based on outdoor temperature
 - [x] **2-Tier Data Loading** - Cache file + Recorder history for instant bootstrap
 
+**Smart Heating Insights (Phase 3):**
+- [x] **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
+- [x] **Preheat Advisor** - Suggest optimal preheat time based on historical warm-up patterns
+
+**Example Insights:**
+```
+"Past 7 days at this time: avg 18.5°C, today: 17.2°C (-1.3°C)"
+"Heating rate today: 1.2°C/h vs historical 2.5°C/h (-52% - possible issue?)"
+"Suggested preheat time: 06:15 (typical warm-up: 45 min)"
+```
+
 **Bug Fixes:**
 - [x] **Fixed API reset detection for 100-call limit** - Dynamic threshold now works with both 5000 and 100 call limits ([#54](https://github.com/hiall-fyi/tado_ce/issues/54))
 - [x] **AC turn-off debug logging** - Added detailed logging to diagnose intermittent restore-to-ON issue ([#44](https://github.com/hiall-fyi/tado_ce/issues/44))
@@ -35,23 +46,6 @@ Hub device identifier migration plus intelligent heating analytics.
 **Data Sources:**
 - Tier 1: Cache file (2h detailed data, survives restarts)
 - Tier 2: Recorder history (24h, for bootstrap after cache expires)
-
----
-
-## v1.10.0 - Smart Heating Insights
-
-Leverage long-term statistics for predictive insights.
-
-**Smart Heating Insights Sensor:**
-- [ ] **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
-- [ ] **Preheat Advisor** - Suggest optimal preheat time based on historical warm-up patterns
-
-**Example Insights:**
-```
-"Past 7 days at this time: avg 18.5°C, today: 17.2°C (-1.3°C)"
-"Heating rate today: 1.2°C/h vs historical 2.5°C/h (-52% - possible issue?)"
-"Suggested preheat time: 06:15 (typical warm-up: 45 min)"
-```
 
 ---
 

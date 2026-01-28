@@ -319,3 +319,39 @@ def get_zone_data(zone_id: str) -> Optional[dict]:
         zone_states = zones_data.get('zoneStates') or {}
         return zone_states.get(zone_id)
     return None
+
+
+def load_schedules_file() -> Optional[dict]:
+    """Load schedules.json (zone heating schedules).
+    
+    Returns:
+        Schedules dict (zone_id -> schedule data), or None if file doesn't exist.
+    """
+    try:
+        file_path = _get_file_path("schedules")
+        with open(file_path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        _LOGGER.debug("schedules.json not found")
+        return None
+    except json.JSONDecodeError as e:
+        _LOGGER.warning(f"Invalid JSON in schedules.json: {e}")
+        return None
+    except Exception as e:
+        _LOGGER.error(f"Failed to load schedules.json: {e}")
+        return None
+
+
+def get_zone_schedule(zone_id: str) -> Optional[dict]:
+    """Get schedule data for a specific zone.
+    
+    Args:
+        zone_id: Zone ID to look up.
+        
+    Returns:
+        Zone schedule dict with 'blocks', or None if not found.
+    """
+    schedules = load_schedules_file()
+    if schedules:
+        return schedules.get(zone_id)
+    return None
