@@ -143,6 +143,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                             TadoHeatingEfficiencySensor(zone_id, zone_name, zone_type),
                             TadoHistoricalTempSensor(zone_id, zone_name, zone_type),
+                            TadoNextScheduleTimeSensor(zone_id, zone_name, zone_type),
+                            TadoNextScheduleTempSensor(zone_id, zone_name, zone_type),
                             TadoPreheatAdvisorSensor(zone_id, zone_name, zone_type),
                             TadoSmartComfortTargetSensor(zone_id, zone_name, zone_type),
                         ])
@@ -166,6 +168,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                             TadoHeatingEfficiencySensor(zone_id, zone_name, zone_type),
                             TadoHistoricalTempSensor(zone_id, zone_name, zone_type),
+                            TadoNextScheduleTimeSensor(zone_id, zone_name, zone_type),
+                            TadoNextScheduleTempSensor(zone_id, zone_name, zone_type),
                             TadoPreheatAdvisorSensor(zone_id, zone_name, zone_type),
                             TadoSmartComfortTargetSensor(zone_id, zone_name, zone_type),
                         ])
@@ -1693,6 +1697,168 @@ class TadoHistoricalTempSensor(TadoBaseSensor):
             
         except Exception as e:
             _LOGGER.debug(f"Failed to update historical comparison for zone {self._zone_id}: {e}")
+            self._attr_available = False
+
+
+class TadoNextScheduleTimeSensor(TadoBaseSensor):
+    """Next schedule time sensor.
+    
+    Shows when the next scheduled temperature change will occur.
+    
+    State: Next schedule time (e.g., "17:00" or "Tomorrow 07:00")
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Next Schedule"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_next_schedule_time"
+        self._attr_icon = "mdi:calendar-clock"
+        
+        # Attributes
+        self._next_temp: float | None = None
+        self._is_heating_on: bool = False
+        self._is_tomorrow: bool = False
+        self._minutes_until: int | None = None
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "next_temperature": self._next_temp,
+            "is_heating_on": self._is_heating_on,
+            "is_tomorrow": self._is_tomorrow,
+            "minutes_until": self._minutes_until,
+            "zone_type": self._zone_type,
+        }
+    
+    def update(self):
+        """Update next schedule time from schedule data."""
+        try:
+            from .smart_heating import get_next_schedule_change
+            from datetime import datetime
+            
+            next_block = get_next_schedule_change(self._zone_id)
+            
+            if next_block is None:
+                self._attr_native_value = "No schedule"
+                self._attr_available = True
+                self._next_temp = None
+                self._is_heating_on = False
+                self._is_tomorrow = False
+                self._minutes_until = None
+                return
+            
+            now = datetime.now()
+            self._is_tomorrow = next_block.start_time.date() > now.date()
+            self._is_heating_on = next_block.is_heating_on
+            self._next_temp = next_block.target_temp
+            
+            # Calculate minutes until
+            time_diff = next_block.start_time - now
+            self._minutes_until = int(time_diff.total_seconds() / 60)
+            
+            # Format display value
+            time_str = next_block.start_time.strftime("%H:%M")
+            if self._is_tomorrow:
+                self._attr_native_value = f"Tomorrow {time_str}"
+            else:
+                self._attr_native_value = time_str
+            
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update next schedule for zone {self._zone_id}: {e}")
+            self._attr_available = False
+
+
+class TadoNextScheduleTempSensor(TadoBaseSensor):
+    """Next schedule target temperature sensor.
+    
+    Shows the target temperature of the next scheduled block.
+    
+    State: Target temperature (°C) or "OFF"
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Next Schedule Temp"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_next_schedule_temp"
+        self._attr_native_unit_of_measurement = "°C"
+        self._attr_icon = "mdi:thermometer-chevron-up"
+        self._attr_state_class = "measurement"
+        
+        # Attributes
+        self._schedule_time: str | None = None
+        self._is_heating_on: bool = False
+        self._current_temp: float | None = None
+        self._temp_diff: float | None = None
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "schedule_time": self._schedule_time,
+            "is_heating_on": self._is_heating_on,
+            "current_temperature": self._current_temp,
+            "temperature_difference": self._temp_diff,
+            "zone_type": self._zone_type,
+        }
+    
+    @property
+    def icon(self):
+        """Dynamic icon based on heating direction."""
+        if self._temp_diff is not None:
+            if self._temp_diff > 0:
+                return "mdi:thermometer-chevron-up"
+            elif self._temp_diff < 0:
+                return "mdi:thermometer-chevron-down"
+        if not self._is_heating_on:
+            return "mdi:thermometer-off"
+        return "mdi:thermometer"
+    
+    def update(self):
+        """Update next schedule temperature from schedule data."""
+        try:
+            from .smart_heating import get_next_schedule_change
+            from datetime import datetime
+            
+            next_block = get_next_schedule_change(self._zone_id)
+            
+            if next_block is None:
+                self._attr_native_value = None
+                self._attr_available = False
+                self._schedule_time = None
+                self._is_heating_on = False
+                self._current_temp = None
+                self._temp_diff = None
+                return
+            
+            self._is_heating_on = next_block.is_heating_on
+            self._schedule_time = next_block.start_time.strftime("%H:%M")
+            
+            # Get current temperature
+            zone_data = self._get_zone_data()
+            if zone_data:
+                sensor_data = zone_data.get('sensorDataPoints') or {}
+                self._current_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            
+            if not next_block.is_heating_on or next_block.target_temp is None:
+                # Heating OFF block
+                self._attr_native_value = None
+                self._attr_available = True
+                self._temp_diff = None
+                return
+            
+            self._attr_native_value = next_block.target_temp
+            
+            # Calculate temperature difference
+            if self._current_temp is not None:
+                self._temp_diff = round(next_block.target_temp - self._current_temp, 1)
+            else:
+                self._temp_diff = None
+            
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update next schedule temp for zone {self._zone_id}: {e}")
             self._attr_available = False
 
 

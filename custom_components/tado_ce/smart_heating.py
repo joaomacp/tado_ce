@@ -89,16 +89,45 @@ class NextScheduleBlock:
         }
 
 
-def get_next_schedule_change(zone_id: str, current_time: Optional[datetime] = None) -> Optional[NextScheduleBlock]:
+def _get_day_blocks(blocks: dict, schedule_type: str, weekday: int) -> list:
+    """Get schedule blocks for a specific weekday.
+    
+    Args:
+        blocks: Schedule blocks dict from schedule data
+        schedule_type: ONE_DAY, THREE_DAY, or SEVEN_DAY
+        weekday: 0=Monday, 6=Sunday
+        
+    Returns:
+        List of blocks for that day
+    """
+    if schedule_type == "ONE_DAY":
+        return blocks.get("MONDAY_TO_SUNDAY", [])
+    elif schedule_type == "THREE_DAY":
+        if weekday < 5:
+            return blocks.get("MONDAY_TO_FRIDAY", [])
+        elif weekday == 5:
+            return blocks.get("SATURDAY", [])
+        else:
+            return blocks.get("SUNDAY", [])
+    else:
+        # SEVEN_DAY
+        day_name = DAY_TYPE_MAP.get(weekday, "MONDAY")
+        return blocks.get(day_name, [])
+
+
+def get_next_schedule_change(zone_id: str, current_time: Optional[datetime] = None, look_ahead_days: int = 2) -> Optional[NextScheduleBlock]:
     """Find the next schedule block that requires temperature change.
     
     Parses the zone's schedule and finds the next block where:
     1. Heating turns ON with a target temperature, OR
     2. Target temperature increases (needs preheat)
     
+    Now supports looking ahead to tomorrow if no blocks remain today.
+    
     Args:
         zone_id: Zone ID to look up schedule for
         current_time: Current time (defaults to now)
+        look_ahead_days: How many days to look ahead (default 2 = today + tomorrow)
         
     Returns:
         NextScheduleBlock with next change info, or None if no schedule/no upcoming change
@@ -116,71 +145,59 @@ def get_next_schedule_change(zone_id: str, current_time: Optional[datetime] = No
     blocks = schedule.get("blocks", {})
     schedule_type = schedule.get("type", "ONE_DAY")
     
-    # Get today's day name
-    today_weekday = current_time.weekday()
-    today_name = DAY_TYPE_MAP.get(today_weekday, "MONDAY")
-    
-    # Determine which day type to use based on schedule type
-    if schedule_type == "ONE_DAY":
-        # ONE_DAY schedules use MONDAY_TO_SUNDAY for all days
-        day_blocks = blocks.get("MONDAY_TO_SUNDAY", [])
-    elif schedule_type == "THREE_DAY":
-        # THREE_DAY: MONDAY_TO_FRIDAY, SATURDAY, SUNDAY
-        if today_weekday < 5:
-            day_blocks = blocks.get("MONDAY_TO_FRIDAY", [])
-        elif today_weekday == 5:
-            day_blocks = blocks.get("SATURDAY", [])
-        else:
-            day_blocks = blocks.get("SUNDAY", [])
-    else:
-        # SEVEN_DAY: Each day has its own schedule
-        day_blocks = blocks.get(today_name, [])
-    
-    if not day_blocks:
-        _LOGGER.debug(f"No blocks found for zone {zone_id} on {today_name}")
-        return None
-    
-    current_time_str = current_time.strftime("%H:%M")
-    
-    # Find the next block that starts after current time
-    for block in day_blocks:
-        block_start = block.get("start", "00:00")
-        block_end = block.get("end", "00:00")
-        setting = block.get("setting", {})
-        power = setting.get("power", "OFF")
-        temp_data = setting.get("temperature")
+    # Look through today and upcoming days
+    for day_offset in range(look_ahead_days):
+        check_date = current_time + timedelta(days=day_offset)
+        check_weekday = check_date.weekday()
         
-        # Skip if block has already started
-        if block_start <= current_time_str:
+        day_blocks = _get_day_blocks(blocks, schedule_type, check_weekday)
+        
+        if not day_blocks:
             continue
         
-        # Parse start time into datetime
-        start_hour, start_min = map(int, block_start.split(":"))
-        start_datetime = current_time.replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
-        
-        # Parse end time
-        end_hour, end_min = map(int, block_end.split(":"))
-        if block_end == "00:00":
-            # Midnight means end of day
-            end_datetime = (current_time + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        # For today, skip blocks that have already started
+        # For future days, consider all blocks
+        if day_offset == 0:
+            current_time_str = current_time.strftime("%H:%M")
         else:
-            end_datetime = current_time.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
+            current_time_str = "00:00"  # Consider all blocks for future days
         
-        # Get target temperature
-        target_temp = None
-        if power == "ON" and temp_data:
-            target_temp = temp_data.get("celsius")
-        
-        return NextScheduleBlock(
-            start_time=start_datetime,
-            target_temp=target_temp,
-            is_heating_on=(power == "ON"),
-            block_end_time=end_datetime,
-        )
+        for block in day_blocks:
+            block_start = block.get("start", "00:00")
+            block_end = block.get("end", "00:00")
+            setting = block.get("setting", {})
+            power = setting.get("power", "OFF")
+            temp_data = setting.get("temperature")
+            
+            # Skip if block has already started (only for today)
+            if block_start <= current_time_str:
+                continue
+            
+            # Parse start time into datetime
+            start_hour, start_min = map(int, block_start.split(":"))
+            start_datetime = check_date.replace(hour=start_hour, minute=start_min, second=0, microsecond=0)
+            
+            # Parse end time
+            end_hour, end_min = map(int, block_end.split(":"))
+            if block_end == "00:00":
+                # Midnight means end of day
+                end_datetime = (check_date + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            else:
+                end_datetime = check_date.replace(hour=end_hour, minute=end_min, second=0, microsecond=0)
+            
+            # Get target temperature
+            target_temp = None
+            if power == "ON" and temp_data:
+                target_temp = temp_data.get("celsius")
+            
+            return NextScheduleBlock(
+                start_time=start_datetime,
+                target_temp=target_temp,
+                is_heating_on=(power == "ON"),
+                block_end_time=end_datetime,
+            )
     
-    # No more blocks today - check tomorrow's first block
-    # For simplicity, return None and let the sensor handle "no upcoming change"
-    _LOGGER.debug(f"No more schedule blocks today for zone {zone_id}")
+    _LOGGER.debug(f"No schedule blocks found for zone {zone_id} in next {look_ahead_days} days")
     return None
 
 

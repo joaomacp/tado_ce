@@ -16,11 +16,22 @@ All notable changes to Tado CE will be documented in this file.
 - **Weather Compensation** - Adjust predictions based on outdoor temperature
 - **Unit Conversions** - Automatic conversion for Fahrenheit and various wind speed units
 
-### Smart Comfort Insights (Phase 3) - NEW
+### Smart Comfort Insights (Phase 3)
 - **Historical Temperature Comparison** - Compare current temp vs 7-day same-time average
 - **Preheat Advisor** - Suggest optimal preheat start time based on historical warm-up patterns
 - **Smart Comfort Target Sensor** - Compensated target temperature based on outdoor temp + humidity
 - **Smart Comfort Mode** - Preset-based comfort optimization (None/Light/Moderate/Aggressive)
+
+### Schedule Integration - NEW
+- **Next Schedule Time Sensor** - Shows when next scheduled temperature change occurs (e.g., "17:00" or "Tomorrow 07:00")
+- **Next Schedule Temp Sensor** - Shows target temperature of next scheduled block
+- **Cross-day schedule lookup** - Schedule sensors now look ahead to tomorrow if no blocks remain today
+
+### UI/UX Improvements - NEW
+- **Reorganized Options** - Options now grouped into Features, Polling Schedule, Smart Comfort, and Experimental sections
+- **Renamed "Advanced Settings" to "Experimental"** - Clearer naming for test/debug options
+- **Moved settings to logical sections** - `refresh_debounce_seconds` and `mobile_devices_frequent_sync` now in Polling Schedule
+- **Renamed "Open Window" to "Window"** - Shorter display name for binary sensor
 
 ### Bug Fixes
 - **Fixed API reset detection for 100-call limit** - Dynamic threshold now works with both 5000 and 100 call limits ([#54](https://github.com/hiall-fyi/tado_ce/issues/54))
