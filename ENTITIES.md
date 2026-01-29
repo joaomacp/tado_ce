@@ -27,6 +27,7 @@ Enable in Options → Features → "Enable Smart Comfort Analytics":
 - **Reorganized Options**: Now grouped into Features, Polling Schedule, Smart Comfort, and Experimental sections
 - **Renamed "Advanced Settings" to "Experimental"**: Clearer naming
 - **Renamed "Open Window" to "Window"**: Shorter display name for binary sensor
+- **Renamed "Heating" to "Heating Power"**: Clearer sensor name for heating demand percentage (entity IDs unchanged)
 
 ---
 
@@ -204,7 +205,7 @@ For each zone, you get these sensors:
 |--------|------|-------------|
 | `sensor.{zone}_temperature` | Temperature | Current temperature |
 | `sensor.{zone}_humidity` | Percentage | Current humidity |
-| `sensor.{zone}_heating` | Percentage | Heating power (0-100%) |
+| `sensor.{zone}_heating` | Percentage | Heating Power (0-100%) |
 | `sensor.{zone}_power` | State | Power state (ON/OFF) (v1.5.0) |
 | `sensor.{zone}_target` | Temperature | Target temperature |
 | `sensor.{zone}_mode` | State | Mode (Manual/Schedule/Off) |

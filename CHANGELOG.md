@@ -34,6 +34,7 @@ All notable changes to Tado CE will be documented in this file.
 - **Renamed "Advanced Settings" to "Experimental"** - Clearer naming for test/debug options
 - **Moved settings to logical sections** - `refresh_debounce_seconds` and `mobile_devices_frequent_sync` now in Polling Schedule
 - **Renamed "Open Window" to "Window"** - Shorter display name for binary sensor
+- **Renamed "Heating" to "Heating Power"** - Clearer sensor name for heating demand percentage (entity IDs unchanged)
 - **Removed comfort threshold config** - `comfort_threshold_heating` and `comfort_threshold_cooling` removed (environment sensors now auto-detect from zone data)
 
 ### Bug Fixes

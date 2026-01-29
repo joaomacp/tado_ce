@@ -929,7 +929,7 @@ class TadoHeatingPowerSensor(TadoBaseSensor):
     
     def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
         super().__init__(zone_id, zone_name, zone_type)
-        self._attr_name = f"{zone_name} Heating"
+        self._attr_name = f"{zone_name} Heating Power"
         # Use zone_name for unique_id to maintain entity_id stability
         self._attr_unique_id = f"tado_ce_zone_{zone_id}_heating"
         self._attr_native_unit_of_measurement = PERCENTAGE
