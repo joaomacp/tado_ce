@@ -4,7 +4,22 @@
 
 ---
 
-## v1.9.0 (In Development) - Smart Comfort Analytics + Bug Fixes
+## v1.9.1 (2026-01-31) - Hotfix: Device Migration Error
+
+### Bug Reports & Issue Reporters
+
+**[@thefern69](https://github.com/thefern69)** - [Issue #74](https://github.com/hiall-fyi/tado_ce/issues/74)
+- Reported startup crash after upgrading to v1.9.0
+- Identified device identifier unpacking error in migration code
+- Quick bug report that caught this critical issue within hours of release
+
+### What Was Fixed
+
+- ✅ **Issue #74**: Device migration error - fixed identifier tuple unpacking for non-standard device identifiers
+
+---
+
+## v1.9.0 (2026-01-31) - Smart Comfort Analytics + Bug Fixes
 
 ### Feature Ideas & Suggestions
 
