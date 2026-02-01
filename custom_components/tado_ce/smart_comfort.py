@@ -292,10 +292,34 @@ class ZoneHistory:
     
     @classmethod
     def from_dict(cls, data: dict) -> "ZoneHistory":
-        """Create from dictionary."""
+        """Create from dictionary.
+        
+        v1.9.2: Deduplicates readings on load to clean up cache files
+        from v1.9.0/v1.9.1 that may have duplicate entries.
+        """
         history_days = data.get("history_days", DEFAULT_HISTORY_DAYS)
         zone = cls(data["zone_id"], data["zone_name"], history_days)
-        zone.readings = [TemperatureReading.from_dict(r) for r in data.get("readings", [])]
+        
+        # Load and deduplicate readings
+        raw_readings = [TemperatureReading.from_dict(r) for r in data.get("readings", [])]
+        
+        # Sort by timestamp to ensure proper deduplication order
+        raw_readings.sort(key=lambda r: r.timestamp)
+        
+        # Deduplicate: skip if same temp/heating and < 5 min apart
+        deduplicated = []
+        for reading in raw_readings:
+            if deduplicated:
+                last = deduplicated[-1]
+                time_diff = (reading.timestamp - last.timestamp).total_seconds()
+                # Skip duplicate: same temp, same heating state, < 5 min
+                if (abs(reading.temperature - last.temperature) < 0.05 and
+                    reading.is_heating == last.is_heating and
+                    time_diff < 300):
+                    continue
+            deduplicated.append(reading)
+        
+        zone.readings = deduplicated
         return zone
     
     def set_history_days(self, days: int) -> None:
@@ -304,7 +328,23 @@ class ZoneHistory:
         self._prune_old_readings()
     
     def add_reading(self, reading: TemperatureReading) -> None:
-        """Add a temperature reading and prune old data."""
+        """Add a temperature reading and prune old data.
+        
+        Deduplication: Only adds if temperature or is_heating changed,
+        or if more than 5 minutes have passed since last reading.
+        This prevents cache bloat from frequent polling.
+        """
+        # Deduplication check
+        if self.readings:
+            last = self.readings[-1]
+            time_diff = (reading.timestamp - last.timestamp).total_seconds()
+            
+            # Skip if same temp and heating state, and less than 5 minutes
+            if (abs(reading.temperature - last.temperature) < 0.05 and
+                reading.is_heating == last.is_heating and
+                time_diff < 300):  # 5 minutes
+                return
+        
         self.readings.append(reading)
         self._prune_old_readings()
     
