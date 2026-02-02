@@ -4,6 +4,35 @@
 
 ---
 
+## v1.9.4 (2026-02-02) - Boost Buttons & Bug Fixes
+
+### Bug Reports & Issue Reporters
+
+**[@hapklaar](https://github.com/hapklaar)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Reported hvac_action stuck on "Heating" after switching to Auto mode
+- Provided debug logs showing the optimistic update wasn't setting hvac_action
+
+**[@chinezbrun](https://github.com/chinezbrun)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Reported Heating Power sensor not updating immediately after actions
+- Confirmed v1.9.3 speed improvements and identified remaining sensor delay
+
+**[@neonsp](https://github.com/neonsp)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Reported AC startup validation warnings ("Fan mode is not valid")
+- Tested and confirmed the fix
+
+### What Was Fixed
+
+- ✅ **Issue #44**: hvac_action now sets to IDLE when switching to AUTO mode (optimistic update)
+- ✅ **Issue #44**: Zone sensors (Temperature, Humidity, Heating Power) now update immediately via signal
+- ✅ **Issue #44**: AC startup validation warnings suppressed by setting default fan/swing modes
+
+### New Features
+
+- ✅ **Boost Button** - Official Tado-style boost (25°C for 30 min)
+- ✅ **Smart Boost Button** - Intelligent duration based on heating rate
+
+---
+
 ## v1.9.3 (2026-02-02) - Fix: Slow State Confirmation
 
 ### Bug Reports & Issue Reporters
@@ -17,6 +46,24 @@
 
 - ✅ **Issue #44**: Signal-based entity update - climate entities now listen for `SIGNAL_ZONES_UPDATED` and re-read fresh data immediately after zones.json refresh
 - ✅ State confirmation time reduced from 25-30s to ~6-8s (debounce_delay + API time)
+
+---
+
+## v1.9.2 (2026-02-01) - Hotfix: Grey Loading State
+
+### Bug Reports & Issue Reporters
+
+**[@chinezbrun](https://github.com/chinezbrun)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Reported grey loading state issue (15-20 second delay) when changing climate modes
+- Extensive testing across multiple versions (v1.5.0 to v1.9.1) to help identify the regression
+- Provided detailed timestamps and screenshots showing the delay
+
+### What Was Fixed
+
+- ✅ **Issue #44**: Grey loading state - changed from fire-and-forget to await pattern for API calls
+- ✅ Service calls now await API completion (with 10s timeout) for proper HA Frontend state sync
+- ✅ Fixed race condition where refresh failures incorrectly triggered rollback
+- ✅ Fixed Smart Comfort cache bloat - deduplicate readings on cache load
 
 ---
 

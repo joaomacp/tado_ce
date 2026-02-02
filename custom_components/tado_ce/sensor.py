@@ -5,8 +5,9 @@ from datetime import timedelta
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorEntityDescription
 from homeassistant.const import UnitOfTemperature, PERCENTAGE, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN, ZONES_FILE, ZONES_INFO_FILE, RATELIMIT_FILE, WEATHER_FILE, MOBILE_DEVICES_FILE, API_CALL_HISTORY_FILE, DEFAULT_ZONE_NAMES, CONFIG_FILE, DATA_DIR, TADO_AUTH_URL, CLIENT_ID
 from .device_manager import get_hub_device_info, get_zone_device_info
@@ -16,6 +17,7 @@ from .data_loader import (
     load_config_file, load_ratelimit_file, load_api_call_history_file,
     get_zone_names as dl_get_zone_names
 )
+from .immediate_refresh_handler import SIGNAL_ZONES_UPDATED
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -841,6 +843,32 @@ class TadoBaseSensor(SensorEntity):
         self._attr_native_value = None
         # Use zone device info instead of hub device info
         self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        # v1.9.4: Unsubscribe callback for zones_updated signal
+        self._unsub_zones_updated = None
+
+    async def async_added_to_hass(self):
+        """Register signal listener when entity is added to hass.
+        
+        v1.9.4: Listen for SIGNAL_ZONES_UPDATED to force immediate update
+        after zones.json is refreshed. This fixes slow sensor updates (#44).
+        """
+        await super().async_added_to_hass()
+        
+        @callback
+        def _handle_zones_updated():
+            """Handle zones.json update signal."""
+            self.async_schedule_update_ha_state(True)
+        
+        self._unsub_zones_updated = async_dispatcher_connect(
+            self.hass, SIGNAL_ZONES_UPDATED, _handle_zones_updated
+        )
+
+    async def async_will_remove_from_hass(self):
+        """Unregister signal listener when entity is removed."""
+        if self._unsub_zones_updated:
+            self._unsub_zones_updated()
+            self._unsub_zones_updated = None
+        await super().async_will_remove_from_hass()
     
     def _get_zone_data(self):
         """Get zone data from file."""

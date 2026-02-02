@@ -572,8 +572,14 @@ class TadoClimate(ClimateEntity):
             # Optimistic update BEFORE API call
             old_mode = self._attr_hvac_mode
             old_overlay = self._overlay_type
+            old_action = self._attr_hvac_action
             self._attr_hvac_mode = HVACMode.AUTO
             self._overlay_type = None
+            # v1.9.4: Set hvac_action to IDLE when switching to AUTO (#44)
+            # This fixes the issue where hvac_action stays "Heating" after
+            # switching from Heat to Auto. The actual heating state will be
+            # updated when zones.json is refreshed.
+            self._attr_hvac_action = HVACAction.IDLE
             self._optimistic_set_at = time.time()
             self.async_write_ha_state()
             
@@ -594,6 +600,7 @@ class TadoClimate(ClimateEntity):
                 _LOGGER.warning(f"ROLLBACK: {self._zone_name} AUTO mode failed")
                 self._attr_hvac_mode = old_mode
                 self._overlay_type = old_overlay
+                self._attr_hvac_action = old_action
                 self._optimistic_set_at = None
                 self.async_write_ha_state()
     
@@ -797,8 +804,10 @@ class TadoACClimate(ClimateEntity):
         self._attr_target_temperature = None
         self._attr_hvac_mode = None
         self._attr_hvac_action = None
-        self._attr_fan_mode = None
-        self._attr_swing_mode = None
+        # v1.9.3: Set default fan/swing modes to suppress HA startup validation warnings (#44)
+        # HA validates that current mode is in the modes list, so we set valid defaults
+        self._attr_fan_mode = self._attr_fan_modes[0] if self._attr_fan_modes else None
+        self._attr_swing_mode = self._attr_swing_modes[0] if self._attr_swing_modes else None
         self._attr_available = False
         self._attr_current_humidity = None
         
@@ -1122,8 +1131,13 @@ class TadoACClimate(ClimateEntity):
             # Optimistic update BEFORE API call
             old_mode = self._attr_hvac_mode
             old_overlay = self._overlay_type
+            old_action = self._attr_hvac_action
             self._attr_hvac_mode = HVACMode.AUTO
             self._overlay_type = None
+            # v1.9.4: Set hvac_action to IDLE when switching to AUTO (#44)
+            # This fixes the issue where hvac_action stays at previous state after
+            # switching to Auto. The actual state will be updated when zones.json is refreshed.
+            self._attr_hvac_action = HVACAction.IDLE
             self._optimistic_set_at = time.time()
             self.async_write_ha_state()
             
@@ -1144,6 +1158,7 @@ class TadoACClimate(ClimateEntity):
                 _LOGGER.warning(f"AC ROLLBACK: {self._zone_name} AUTO mode failed")
                 self._attr_hvac_mode = old_mode
                 self._overlay_type = old_overlay
+                self._attr_hvac_action = old_action
                 self._optimistic_set_at = None
                 self.async_write_ha_state()
         else:

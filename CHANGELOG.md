@@ -2,6 +2,22 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [1.9.4] - 2026-02-02
+
+**Boost Buttons & Bug Fixes** - One-tap boost functionality and state confirmation improvements.
+
+### New Features
+- **Boost Button** - Official Tado-style boost: sets zone to 25°C for 30 minutes, then resumes schedule
+- **Smart Boost Button** - Intelligent boost with calculated duration based on heating rate
+  - Duration = `(target - current) / heating_rate`
+  - Capped between 15 minutes and 3 hours to prevent runaway heating
+  - Uses schedule target or current + 3°C if no target available
+
+### Bug Fixes
+- **Fixed hvac_action stuck on "Heating" after switching to Auto** - Optimistic update now sets hvac_action to IDLE when switching to AUTO mode ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @hapklaar)
+- **Fixed AC startup validation warnings** - Set default fan/swing modes to suppress "Fan mode is not valid" warnings on HA restart ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @neonsp)
+- **Fixed slow zone sensor updates** - Zone sensors (Temperature, Humidity, Heating Power, AC Power) now update immediately after actions instead of waiting 30 seconds ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @chinezbrun)
+
 ## [1.9.3] - 2026-02-02
 
 **Fix: Slow State Confirmation for Heating Users** ([#44](https://github.com/hiall-fyi/tado_ce/issues/44)) - Signal-based entity update reduces confirmation delay from 25-30s to ~6-8s.

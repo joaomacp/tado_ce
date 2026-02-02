@@ -47,6 +47,17 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoWaterHeaterTimerButton(hass, zone_id, zone_name, duration)
                     )
             
+            # Create boost buttons for heating zones
+            if zone_type == 'HEATING':
+                # Boost button (official Tado-style: max temp for 30 min)
+                buttons.append(
+                    TadoBoostButton(hass, zone_id, zone_name)
+                )
+                # Smart Boost button (calculated duration based on heating rate)
+                buttons.append(
+                    TadoSmartBoostButton(hass, zone_id, zone_name)
+                )
+            
             # Create refresh schedule button for heating zones (only if calendar enabled)
             if zone_type == 'HEATING' and schedule_calendar_enabled:
                 buttons.append(
@@ -315,3 +326,201 @@ class TadoRefreshScheduleButton(ButtonEntity):
             
         except Exception as e:
             _LOGGER.error(f"Failed to refresh schedule for {self._zone_name}: {e}")
+
+
+# Boost button constants
+BOOST_TEMPERATURE = 25.0  # Maximum temperature for boost
+BOOST_DURATION_MINUTES = 30  # Default boost duration
+
+# Smart Boost constants
+SMART_BOOST_MIN_DURATION = 15  # Minimum duration in minutes
+SMART_BOOST_MAX_DURATION = 180  # Maximum duration in minutes (3 hours)
+SMART_BOOST_DEFAULT_RATE = 1.0  # Default heating rate if unknown (°C/h)
+
+
+class TadoBoostButton(ButtonEntity):
+    """Button to boost heating to maximum temperature for 30 minutes.
+    
+    Mimics official Tado app boost functionality:
+    - Sets zone to maximum temperature (25°C)
+    - Timer for 30 minutes
+    - Automatically resumes schedule after timer expires
+    """
+    
+    def __init__(self, hass: HomeAssistant, zone_id: str, zone_name: str):
+        """Initialize the button."""
+        self.hass = hass
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        
+        self._attr_name = f"{zone_name} Boost"
+        self._attr_unique_id = f"tado_ce_{zone_id}_boost"
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, "HEATING")
+        self._attr_icon = "mdi:fire"
+    
+    async def async_press(self) -> None:
+        """Handle button press - boost heating to max for 30 minutes."""
+        from .async_api import get_async_client
+        from .immediate_refresh_handler import get_handler
+        import asyncio
+        
+        _LOGGER.info(f"Boost button pressed for {self._zone_name}")
+        
+        client = get_async_client(self.hass)
+        
+        setting = {
+            "type": "HEATING",
+            "power": "ON",
+            "temperature": {"celsius": BOOST_TEMPERATURE}
+        }
+        termination = {
+            "type": "TIMER",
+            "durationInSeconds": BOOST_DURATION_MINUTES * 60
+        }
+        
+        api_success = False
+        try:
+            async with asyncio.timeout(10):
+                api_success = await client.set_zone_overlay(self._zone_id, setting, termination)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(f"Boost TIMEOUT: {self._zone_name} API call timed out")
+        except Exception as e:
+            _LOGGER.error(f"Boost ERROR: {self._zone_name} API call failed ({e})")
+        
+        if api_success:
+            _LOGGER.info(f"Boost activated: {self._zone_name} set to {BOOST_TEMPERATURE}°C for {BOOST_DURATION_MINUTES} minutes")
+            # Trigger immediate refresh
+            try:
+                handler = get_handler(self.hass)
+                await handler.trigger_refresh(self.entity_id, "boost_activated")
+            except Exception as e:
+                _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+        else:
+            _LOGGER.error(f"Boost failed for {self._zone_name}")
+
+
+class TadoSmartBoostButton(ButtonEntity):
+    """Button to smart boost heating with calculated duration.
+    
+    Uses heating rate sensor to calculate optimal boost duration:
+    - Target: Schedule's next target temperature (or current + 3°C if unavailable)
+    - Duration: (target - current) / heating_rate
+    - Capped between 15 minutes and 3 hours
+    """
+    
+    def __init__(self, hass: HomeAssistant, zone_id: str, zone_name: str):
+        """Initialize the button."""
+        self.hass = hass
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        
+        self._attr_name = f"{zone_name} Smart Boost"
+        self._attr_unique_id = f"tado_ce_{zone_id}_smart_boost"
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, "HEATING")
+        self._attr_icon = "mdi:fire-alert"
+    
+    def _get_climate_entity_id(self) -> str:
+        """Get the climate entity ID for this zone."""
+        # Entity ID format: climate.{zone_name_lowercase_underscored}
+        return f"climate.{self._zone_name.lower().replace(' ', '_')}"
+    
+    def _get_heating_rate_entity_id(self) -> str:
+        """Get the heating rate sensor entity ID for this zone."""
+        # Entity ID format: sensor.{zone_name}_heating_rate
+        return f"sensor.{self._zone_name.lower().replace(' ', '_')}_heating_rate"
+    
+    async def async_press(self) -> None:
+        """Handle button press - smart boost with calculated duration."""
+        from .async_api import get_async_client
+        from .immediate_refresh_handler import get_handler
+        import asyncio
+        
+        _LOGGER.info(f"Smart Boost button pressed for {self._zone_name}")
+        
+        # Get current temperature from climate entity
+        climate_entity_id = self._get_climate_entity_id()
+        climate_state = self.hass.states.get(climate_entity_id)
+        
+        if not climate_state:
+            _LOGGER.error(f"Smart Boost: Climate entity not found: {climate_entity_id}")
+            return
+        
+        current_temp = climate_state.attributes.get('current_temperature')
+        if current_temp is None:
+            _LOGGER.error(f"Smart Boost: No current temperature for {self._zone_name}")
+            return
+        
+        # Get target temperature (schedule target or current + 3°C)
+        target_temp = climate_state.attributes.get('temperature')
+        if target_temp is None or target_temp <= current_temp:
+            # No schedule target or already at/above target, use current + 3°C
+            target_temp = min(current_temp + 3.0, 25.0)
+            _LOGGER.debug(f"Smart Boost: Using default target {target_temp}°C (current + 3)")
+        
+        # Get heating rate from sensor
+        heating_rate_entity_id = self._get_heating_rate_entity_id()
+        heating_rate_state = self.hass.states.get(heating_rate_entity_id)
+        
+        if heating_rate_state and heating_rate_state.state not in ('unknown', 'unavailable'):
+            try:
+                heating_rate = float(heating_rate_state.state)
+                if heating_rate <= 0:
+                    heating_rate = SMART_BOOST_DEFAULT_RATE
+            except (ValueError, TypeError):
+                heating_rate = SMART_BOOST_DEFAULT_RATE
+        else:
+            heating_rate = SMART_BOOST_DEFAULT_RATE
+            _LOGGER.debug(f"Smart Boost: Using default heating rate {heating_rate}°C/h")
+        
+        # Calculate duration: (target - current) / rate * 60 minutes
+        temp_diff = target_temp - current_temp
+        if temp_diff <= 0:
+            _LOGGER.info(f"Smart Boost: Already at or above target ({current_temp}°C >= {target_temp}°C)")
+            return
+        
+        duration_hours = temp_diff / heating_rate
+        duration_minutes = int(duration_hours * 60)
+        
+        # Apply caps
+        duration_minutes = max(SMART_BOOST_MIN_DURATION, min(duration_minutes, SMART_BOOST_MAX_DURATION))
+        
+        _LOGGER.info(
+            f"Smart Boost calculation: {current_temp}°C → {target_temp}°C, "
+            f"rate={heating_rate}°C/h, duration={duration_minutes}min"
+        )
+        
+        # Set the overlay
+        client = get_async_client(self.hass)
+        
+        setting = {
+            "type": "HEATING",
+            "power": "ON",
+            "temperature": {"celsius": target_temp}
+        }
+        termination = {
+            "type": "TIMER",
+            "durationInSeconds": duration_minutes * 60
+        }
+        
+        api_success = False
+        try:
+            async with asyncio.timeout(10):
+                api_success = await client.set_zone_overlay(self._zone_id, setting, termination)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(f"Smart Boost TIMEOUT: {self._zone_name} API call timed out")
+        except Exception as e:
+            _LOGGER.error(f"Smart Boost ERROR: {self._zone_name} API call failed ({e})")
+        
+        if api_success:
+            _LOGGER.info(
+                f"Smart Boost activated: {self._zone_name} set to {target_temp}°C "
+                f"for {duration_minutes} minutes (rate: {heating_rate}°C/h)"
+            )
+            # Trigger immediate refresh
+            try:
+                handler = get_handler(self.hass)
+                await handler.trigger_refresh(self.entity_id, "smart_boost_activated")
+            except Exception as e:
+                _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+        else:
+            _LOGGER.error(f"Smart Boost failed for {self._zone_name}")
