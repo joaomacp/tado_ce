@@ -2,6 +2,28 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [1.9.7] - 2026-02-04
+
+**Explicit Optimistic State Tracking** - Fixed flickering/wrong state preservation after mode changes.
+
+### Bug Fixes
+- **Fixed state flickering when rapidly changing modes** - Thermostat no longer flickers between states when quickly switching modes (HEAT → OFF → AUTO) ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @chinezbrun)
+- **Fixed wrong state preservation after mode change** - When setting OFF mode, the system no longer incorrectly preserves the previous HEAT state
+
+### Technical Changes
+- **Explicit optimistic state tracking** - Instead of just tracking "when" (time-based), we now track "what" (state-based)
+  - Added `_optimistic_hvac_mode` and `_optimistic_hvac_action` to track expected state
+  - `update()` now only preserves state when API hasn't confirmed the SPECIFIC expected state
+  - For OFF/AUTO modes, API confirmation is immediate (no preservation needed)
+  - For HEAT mode, only preserve HEATING action if API shows IDLE (boiler hasn't fired yet)
+- **Centralized state management** - Added `_set_optimistic_state()` and `_clear_optimistic_state()` helper methods
+
+### Root Cause Analysis
+v1.9.6's time-based optimistic window (`_optimistic_set_at`) didn't track WHAT state to preserve. When user set OFF mode, the window was still active from a previous HEAT action, causing `update()` to incorrectly preserve the old HEAT state instead of accepting the new OFF state.
+
+### Contributors
+Thanks to [@chinezbrun](https://github.com/chinezbrun) for detailed logs that helped identify the flickering pattern!
+
 ## [1.9.6] - 2026-02-04
 
 **Optimistic Update Consistency Fix** - Fixed hvac_action reverting after state changes.
