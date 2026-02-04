@@ -1,6 +1,7 @@
 """Tado CE Switch Platform (Child Lock + Early Start)."""
 import json
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.components.switch import SwitchEntity
@@ -73,6 +74,44 @@ class TadoAwayModeSwitch(SwitchEntity):
         self._attr_available = True
         self._attr_device_info = get_hub_device_info()
         self._presence_locked = False
+        
+        # v1.9.6: Optimistic update tracking (parity with climate entities)
+        self._optimistic_set_at: float | None = None
+
+    # ========== v1.9.6: Helper Methods ==========
+    
+    def _get_debounce_window(self) -> float:
+        """Get the optimistic update debounce window in seconds.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
+        """
+        try:
+            from homeassistant.core import HomeAssistant
+            if hasattr(self, 'hass') and self.hass:
+                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+                if config_manager:
+                    return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+        except Exception:
+            pass
+        return 17.0  # Default fallback (15s debounce + 2s buffer)
+    
+    def _is_within_optimistic_window(self) -> bool:
+        """Check if we're within the optimistic update window.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            True if _optimistic_set_at is set and elapsed time < debounce window.
+        """
+        if self._optimistic_set_at is None:
+            return False
+        elapsed = time.time() - self._optimistic_set_at
+        return elapsed < self._get_debounce_window()
+
+    # ========== End Helper Methods ==========
     
     @property
     def icon(self):
@@ -87,7 +126,19 @@ class TadoAwayModeSwitch(SwitchEntity):
         }
     
     def update(self):
-        """Update away mode state from home state file."""
+        """Update away mode state from home state file.
+        
+        v1.9.6: Added optimistic window protection (parity with climate entities).
+        """
+        # v1.9.6: Preserve optimistic state if within window
+        if self._is_within_optimistic_window():
+            _LOGGER.debug("Away Mode: Preserving optimistic state (within window)")
+            return
+        
+        # Window expired, clear optimistic tracking
+        if self._optimistic_set_at is not None:
+            self._optimistic_set_at = None
+        
         try:
             # Try to read from home state file first (most reliable)
             try:
@@ -121,34 +172,68 @@ class TadoAwayModeSwitch(SwitchEntity):
                 self._attr_available = True
                 
         except Exception as e:
-            _LOGGER.debug(f"Failed to update away mode: {e}")
+            _LOGGER.warning(f"Failed to update away mode: {e}")
             # Keep last known state
     
     async def async_turn_on(self, **kwargs):
-        """Set Away mode (everyone away) - async."""
+        """Set Away mode (everyone away) - async.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        """
         from .async_api import get_async_client
+        
+        # Store previous state for rollback
+        old_is_on = self._attr_is_on
+        old_presence_locked = self._presence_locked
+        
+        # Optimistic update BEFORE API call
+        self._attr_is_on = True
+        self._presence_locked = True
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
         
         client = get_async_client(self.hass)
         success = await client.set_presence_lock("AWAY")
         
         if success:
-            self._attr_is_on = True
-            self._presence_locked = True
-            self.async_write_ha_state()
+            _LOGGER.info("Set Away mode ON")
             await self._async_trigger_immediate_refresh("away_mode_on")
+        else:
+            _LOGGER.warning("ROLLBACK: Away mode ON failed")
+            self._attr_is_on = old_is_on
+            self._presence_locked = old_presence_locked
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     async def async_turn_off(self, **kwargs):
-        """Set Home mode (someone home) - async."""
+        """Set Home mode (someone home) - async.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        """
         from .async_api import get_async_client
+        
+        # Store previous state for rollback
+        old_is_on = self._attr_is_on
+        old_presence_locked = self._presence_locked
+        
+        # Optimistic update BEFORE API call
+        self._attr_is_on = False
+        self._presence_locked = True
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
         
         client = get_async_client(self.hass)
         success = await client.set_presence_lock("HOME")
         
         if success:
-            self._attr_is_on = False
-            self._presence_locked = True
-            self.async_write_ha_state()
+            _LOGGER.info("Set Away mode OFF (Home)")
             await self._async_trigger_immediate_refresh("away_mode_off")
+        else:
+            _LOGGER.warning("ROLLBACK: Away mode OFF failed")
+            self._attr_is_on = old_is_on
+            self._presence_locked = old_presence_locked
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
         """Trigger immediate refresh after state change."""
@@ -157,7 +242,7 @@ class TadoAwayModeSwitch(SwitchEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, reason)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
 
 
 class TadoEarlyStartSwitch(SwitchEntity):
@@ -176,6 +261,44 @@ class TadoEarlyStartSwitch(SwitchEntity):
         self._attr_available = True
         # Use zone device info instead of hub device info
         self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        
+        # v1.9.6: Optimistic update tracking (parity with climate entities)
+        self._optimistic_set_at: float | None = None
+
+    # ========== v1.9.6: Helper Methods ==========
+    
+    def _get_debounce_window(self) -> float:
+        """Get the optimistic update debounce window in seconds.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
+        """
+        try:
+            from homeassistant.core import HomeAssistant
+            if hasattr(self, 'hass') and self.hass:
+                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+                if config_manager:
+                    return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+        except Exception:
+            pass
+        return 17.0  # Default fallback (15s debounce + 2s buffer)
+    
+    def _is_within_optimistic_window(self) -> bool:
+        """Check if we're within the optimistic update window.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            True if _optimistic_set_at is set and elapsed time < debounce window.
+        """
+        if self._optimistic_set_at is None:
+            return False
+        elapsed = time.time() - self._optimistic_set_at
+        return elapsed < self._get_debounce_window()
+
+    # ========== End Helper Methods ==========
     
     @property
     def icon(self):
@@ -190,22 +313,67 @@ class TadoEarlyStartSwitch(SwitchEntity):
         }
     
     def update(self):
-        """Update early start state from API."""
+        """Update early start state from API.
+        
+        v1.9.6: Added optimistic window protection (parity with climate entities).
+        Early start state is not in the cached files, so we keep the last known state.
+        It will be updated when user toggles it.
+        """
+        # v1.9.6: Preserve optimistic state if within window
+        if self._is_within_optimistic_window():
+            _LOGGER.debug(f"{self._zone_name} Early Start: Preserving optimistic state (within window)")
+            return
+        
+        # Window expired, clear optimistic tracking
+        if self._optimistic_set_at is not None:
+            self._optimistic_set_at = None
+        
         # Early start state is not in the cached files, so we keep the last known state
-        # It will be updated when user toggles it
         pass
     
     async def async_turn_on(self, **kwargs):
-        """Turn on early start - async."""
+        """Turn on early start - async.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        """
+        # Store previous state for rollback
+        old_is_on = self._attr_is_on
+        
+        # Optimistic update BEFORE API call
+        self._attr_is_on = True
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
+        
         success = await self._async_set_early_start(True)
         if success:
             await self._async_trigger_immediate_refresh("early_start_on")
+        else:
+            _LOGGER.warning(f"ROLLBACK: {self._zone_name} Early Start ON failed")
+            self._attr_is_on = old_is_on
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     async def async_turn_off(self, **kwargs):
-        """Turn off early start - async."""
+        """Turn off early start - async.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        """
+        # Store previous state for rollback
+        old_is_on = self._attr_is_on
+        
+        # Optimistic update BEFORE API call
+        self._attr_is_on = False
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
+        
         success = await self._async_set_early_start(False)
         if success:
             await self._async_trigger_immediate_refresh("early_start_off")
+        else:
+            _LOGGER.warning(f"ROLLBACK: {self._zone_name} Early Start OFF failed")
+            self._attr_is_on = old_is_on
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
         """Trigger immediate refresh after state change."""
@@ -214,7 +382,7 @@ class TadoEarlyStartSwitch(SwitchEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, reason)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
     
     async def _async_set_early_start(self, enabled: bool) -> bool:
         """Set early start state via async API."""
@@ -258,6 +426,44 @@ class TadoChildLockSwitch(SwitchEntity):
         self._attr_available = True
         # Use zone device info instead of hub device info
         self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        
+        # v1.9.6: Optimistic update tracking (parity with climate entities)
+        self._optimistic_set_at: float | None = None
+
+    # ========== v1.9.6: Helper Methods ==========
+    
+    def _get_debounce_window(self) -> float:
+        """Get the optimistic update debounce window in seconds.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
+        """
+        try:
+            from homeassistant.core import HomeAssistant
+            if hasattr(self, 'hass') and self.hass:
+                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+                if config_manager:
+                    return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+        except Exception:
+            pass
+        return 17.0  # Default fallback (15s debounce + 2s buffer)
+    
+    def _is_within_optimistic_window(self) -> bool:
+        """Check if we're within the optimistic update window.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            True if _optimistic_set_at is set and elapsed time < debounce window.
+        """
+        if self._optimistic_set_at is None:
+            return False
+        elapsed = time.time() - self._optimistic_set_at
+        return elapsed < self._get_debounce_window()
+
+    # ========== End Helper Methods ==========
     
     @property
     def icon(self):
@@ -272,7 +478,19 @@ class TadoChildLockSwitch(SwitchEntity):
         }
     
     def update(self):
-        """Update child lock state from JSON file."""
+        """Update child lock state from JSON file.
+        
+        v1.9.6: Added optimistic window protection (parity with climate entities).
+        """
+        # v1.9.6: Preserve optimistic state if within window
+        if self._is_within_optimistic_window():
+            _LOGGER.debug(f"{self._zone_name} Child Lock ({self._serial}): Preserving optimistic state (within window)")
+            return
+        
+        # Window expired, clear optimistic tracking
+        if self._optimistic_set_at is not None:
+            self._optimistic_set_at = None
+        
         try:
             with open(ZONES_INFO_FILE) as f:
                 zones_info = json.load(f)
@@ -290,16 +508,48 @@ class TadoChildLockSwitch(SwitchEntity):
             self._attr_available = False
     
     async def async_turn_on(self, **kwargs):
-        """Turn on child lock - async."""
+        """Turn on child lock - async.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        """
+        # Store previous state for rollback
+        old_is_on = self._attr_is_on
+        
+        # Optimistic update BEFORE API call
+        self._attr_is_on = True
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
+        
         success = await self._async_set_child_lock(True)
         if success:
             await self._async_trigger_immediate_refresh("child_lock_on")
+        else:
+            _LOGGER.warning(f"ROLLBACK: {self._zone_name} Child Lock ({self._serial}) ON failed")
+            self._attr_is_on = old_is_on
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     async def async_turn_off(self, **kwargs):
-        """Turn off child lock - async."""
+        """Turn off child lock - async.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        """
+        # Store previous state for rollback
+        old_is_on = self._attr_is_on
+        
+        # Optimistic update BEFORE API call
+        self._attr_is_on = False
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
+        
         success = await self._async_set_child_lock(False)
         if success:
             await self._async_trigger_immediate_refresh("child_lock_off")
+        else:
+            _LOGGER.warning(f"ROLLBACK: {self._zone_name} Child Lock ({self._serial}) OFF failed")
+            self._attr_is_on = old_is_on
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
         """Trigger immediate refresh after state change."""
@@ -308,7 +558,7 @@ class TadoChildLockSwitch(SwitchEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, reason)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
     
     async def _async_set_child_lock(self, enabled: bool) -> bool:
         """Set child lock state via async API."""

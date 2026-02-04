@@ -1,4 +1,5 @@
 """Tado CE Button Platform."""
+import asyncio
 import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
@@ -127,7 +128,7 @@ class TadoResumeAllSchedulesButton(ButtonEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, "resume_all_schedules", force=True, skip_debounce=True)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
 
 
 class TadoRefreshACCapabilitiesButton(ButtonEntity):
@@ -362,7 +363,6 @@ class TadoBoostButton(ButtonEntity):
         """Handle button press - boost heating to max for 30 minutes."""
         from .async_api import get_async_client
         from .immediate_refresh_handler import get_handler
-        import asyncio
         
         _LOGGER.info(f"Boost button pressed for {self._zone_name}")
         
@@ -394,7 +394,7 @@ class TadoBoostButton(ButtonEntity):
                 handler = get_handler(self.hass)
                 await handler.trigger_refresh(self.entity_id, "boost_activated")
             except Exception as e:
-                _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+                _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
         else:
             _LOGGER.error(f"Boost failed for {self._zone_name}")
 
@@ -433,7 +433,6 @@ class TadoSmartBoostButton(ButtonEntity):
         """Handle button press - smart boost with calculated duration."""
         from .async_api import get_async_client
         from .immediate_refresh_handler import get_handler
-        import asyncio
         
         _LOGGER.info(f"Smart Boost button pressed for {self._zone_name}")
         
@@ -521,6 +520,6 @@ class TadoSmartBoostButton(ButtonEntity):
                 handler = get_handler(self.hass)
                 await handler.trigger_refresh(self.entity_id, "smart_boost_activated")
             except Exception as e:
-                _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+                _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
         else:
             _LOGGER.error(f"Smart Boost failed for {self._zone_name}")

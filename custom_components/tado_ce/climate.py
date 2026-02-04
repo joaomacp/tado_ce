@@ -1,6 +1,8 @@
 """Tado CE Climate Platform - Supports Heating and AC zones."""
+import asyncio
 import json
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.components.climate import ClimateEntity
@@ -192,20 +194,95 @@ class TadoClimate(ClimateEntity):
         # v1.9.3: Unsubscribe callback for zones_updated signal
         self._unsub_zones_updated = None
 
+    # ========== v1.9.6: Helper Methods ==========
+    
+    def _get_debounce_window(self) -> float:
+        """Get the optimistic update debounce window in seconds.
+        
+        v1.9.6: Extracted to helper method to reduce code duplication.
+        
+        Returns:
+            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
+        """
+        try:
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if config_manager:
+                return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+        except Exception:
+            pass
+        return 17.0  # Default fallback (15s debounce + 2s buffer)
+    
+    def _is_within_optimistic_window(self) -> bool:
+        """Check if we're within the optimistic update window.
+        
+        v1.9.6: Extracted to helper method to reduce code duplication.
+        
+        Returns:
+            True if _optimistic_set_at is set and elapsed time < debounce window.
+        """
+        if self._optimistic_set_at is None:
+            return False
+        elapsed = time.time() - self._optimistic_set_at
+        return elapsed < self._get_debounce_window()
+    
+    def _calculate_hvac_action(self, target_temp: float = None) -> HVACAction:
+        """Calculate hvac_action for heating zone.
+        
+        v1.9.6: Single source of truth for hvac_action calculation.
+        Used by both update() and async_set_*() methods to ensure consistency.
+        
+        Priority:
+        1. If hvac_mode == OFF → OFF
+        2. If heating_power > 0 → HEATING (API confirms active heating)
+        3. If hvac_mode == HEAT and target > current + 0.5 → HEATING (temperature fallback)
+        4. Otherwise → IDLE
+        
+        Args:
+            target_temp: Optional target temperature for optimistic updates.
+                        If None, uses self._attr_target_temperature.
+        
+        Returns:
+            HVACAction.HEATING, HVACAction.IDLE, or HVACAction.OFF
+        """
+        # OFF mode always returns OFF
+        if self._attr_hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
+        
+        # API confirms heating (highest priority when available)
+        if self._heating_power and self._heating_power > 0:
+            return HVACAction.HEATING
+        
+        # Temperature-aware fallback for HEAT mode
+        # This handles the case where API hasn't updated heating_power yet
+        if self._attr_hvac_mode == HVACMode.HEAT:
+            target = target_temp if target_temp is not None else self._attr_target_temperature
+            current = self._attr_current_temperature
+            if target is not None and current is not None:
+                # 0.5°C buffer for hysteresis to prevent flip-flopping
+                if target > current + 0.5:
+                    return HVACAction.HEATING
+        
+        return HVACAction.IDLE
+
+    # ========== End Helper Methods ==========
+
     async def async_added_to_hass(self):
         """Register signal listener when entity is added to hass.
         
         v1.9.3: Listen for SIGNAL_ZONES_UPDATED to force immediate update
         after zones.json is refreshed. This fixes the grey loading state
         issue (#44) where entities wait for SCAN_INTERVAL (30s).
+        
+        v1.9.6: Don't clear _optimistic_set_at here - let update() preserve
+        optimistic hvac_action if API hasn't caught up yet (#44).
         """
         await super().async_added_to_hass()
         
         @callback
         def _handle_zones_updated():
             """Handle zones.json update signal."""
-            # Clear optimistic state so update() reads fresh data
-            self._optimistic_set_at = None
+            # v1.9.6: Don't clear _optimistic_set_at - update() will preserve
+            # optimistic hvac_action if heating_power hasn't updated yet (#44)
             # Schedule immediate update
             self.async_schedule_update_ha_state(True)
             _LOGGER.debug(f"{self._zone_name}: Received zones_updated signal, scheduling update")
@@ -239,25 +316,10 @@ class TadoClimate(ClimateEntity):
 
     def update(self):
         """Update climate state from JSON file."""
-        # Skip update if within optimistic debounce window
-        if self._optimistic_set_at is not None:
-            import time
-            elapsed = time.time() - self._optimistic_set_at
-            # Get debounce delay from config + 2s buffer for API response time
-            debounce_window = 17.0  # Default fallback
-            try:
-                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-                if config_manager:
-                    debounce_window = float(config_manager.get_refresh_debounce_seconds()) + 2.0
-            except Exception:
-                pass  # Use default if config unavailable
-            
-            if elapsed < debounce_window:
-                _LOGGER.debug(f"Skipping update for {self._zone_name} - optimistic update {elapsed:.1f}s ago (window: {debounce_window}s)")
-                return
-            else:
-                # Clear optimistic state after window expires
-                self._optimistic_set_at = None
+        # v1.9.6: Removed the early return for optimistic debounce window.
+        # We now let update() run but preserve optimistic hvac_action if API
+        # hasn't caught up yet. This allows other attributes (current_temperature,
+        # humidity, etc.) to update while keeping the optimistic hvac_action.
         
         try:
             # Load home_id from config
@@ -292,11 +354,22 @@ class TadoClimate(ClimateEntity):
                     (activity_data.get('heatingPower') or {}).get('percentage', 0)
                 )
                 
-                # HVAC action based on heating power
-                if self._heating_power and self._heating_power > 0:
-                    self._attr_hvac_action = HVACAction.HEATING
+                # v1.9.6: Use helper method for hvac_action calculation
+                # This ensures consistency between update() and async_set_*() methods
+                new_hvac_action = self._calculate_hvac_action()
+                
+                if self._is_within_optimistic_window():
+                    # Preserve optimistic HEATING if API shows IDLE (API lag)
+                    if self._attr_hvac_action == HVACAction.HEATING and new_hvac_action == HVACAction.IDLE:
+                        _LOGGER.debug(f"{self._zone_name}: Preserving optimistic hvac_action=HEATING (API shows IDLE, heating_power={self._heating_power})")
+                        # Keep current hvac_action, don't overwrite
+                    else:
+                        self._attr_hvac_action = new_hvac_action
                 else:
-                    self._attr_hvac_action = HVACAction.IDLE
+                    # Window expired or no optimistic state, use calculated action
+                    self._attr_hvac_action = new_hvac_action
+                    if self._optimistic_set_at is not None:
+                        self._optimistic_set_at = None
                 
                 # Setting (target temp and mode)
                 setting = zone_data.get('setting') or {}
@@ -316,15 +389,20 @@ class TadoClimate(ClimateEntity):
                         self._attr_hvac_mode = HVACMode.AUTO
                 else:
                     # Power is OFF
-                    # Match official Tado integration: show AUTO if following schedule
-                    # This helps distinguish "OFF by schedule" vs "OFF by manual override"
-                    if self._overlay_type == 'MANUAL':
-                        self._attr_hvac_mode = HVACMode.OFF
+                    # v1.9.6: Use helper method for optimistic window check
+                    if self._is_within_optimistic_window():
+                        # Preserve optimistic state - don't overwrite to OFF
+                        _LOGGER.debug(f"{self._zone_name}: Preserving optimistic state (API shows power=OFF but within window)")
                     else:
-                        # Following schedule (even if scheduled to be OFF)
-                        self._attr_hvac_mode = HVACMode.AUTO
-                    self._attr_target_temperature = None
-                    self._attr_hvac_action = HVACAction.OFF
+                        # Window expired or no optimistic state, trust API
+                        if self._optimistic_set_at is not None:
+                            self._optimistic_set_at = None
+                        if self._overlay_type == 'MANUAL':
+                            self._attr_hvac_mode = HVACMode.OFF
+                        else:
+                            self._attr_hvac_mode = HVACMode.AUTO
+                        self._attr_target_temperature = None
+                        self._attr_hvac_action = HVACAction.OFF
                 
                 self._attr_available = True
                 
@@ -338,7 +416,7 @@ class TadoClimate(ClimateEntity):
             self._update_offset()
                 
         except Exception as e:
-            _LOGGER.debug(f"Failed to update {self.name}: {e}")
+            _LOGGER.warning(f"Failed to update {self.name}: {e}")
             self._attr_available = False
     
     def _update_offset(self):
@@ -387,8 +465,6 @@ class TadoClimate(ClimateEntity):
         
         v1.9.2: Added timeout protection for consistency with other methods.
         """
-        import time
-        import asyncio
         client = get_async_client(self.hass)
         state = "AWAY" if preset_mode == PRESET_AWAY else "HOME"
         
@@ -425,8 +501,6 @@ class TadoClimate(ClimateEntity):
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
         """
-        import time
-        import asyncio
         temperature = kwargs.get(ATTR_TEMPERATURE)
         hvac_mode = kwargs.get(ATTR_HVAC_MODE)
         
@@ -455,16 +529,8 @@ class TadoClimate(ClimateEntity):
         self._attr_target_temperature = temperature
         self._attr_hvac_mode = HVACMode.HEAT
         self._overlay_type = "MANUAL"
-        # v1.9.5: Set hvac_action based on target vs current temperature (#44)
-        # This fixes the issue where hvac_action doesn't update correctly after setting temperature.
-        # The actual heating_power will be confirmed when zones.json is refreshed.
-        if self._attr_current_temperature is not None:
-            if temperature > self._attr_current_temperature:
-                # Target above current = will heat
-                self._attr_hvac_action = HVACAction.HEATING
-            else:
-                # Target at or below current = idle (already at/above target)
-                self._attr_hvac_action = HVACAction.IDLE
+        # v1.9.6: Use helper method for hvac_action calculation
+        self._attr_hvac_action = self._calculate_hvac_action(target_temp=temperature)
         self._optimistic_set_at = time.time()  # Track when optimistic state was set
         _LOGGER.debug(f"Optimistic update: {self._zone_name} target_temp={temperature}, hvac_action={self._attr_hvac_action}")
         self.async_write_ha_state()
@@ -505,8 +571,6 @@ class TadoClimate(ClimateEntity):
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
         """
-        import time
-        import asyncio
         client = get_async_client(self.hass)
         
         if hvac_mode == HVACMode.HEAT:
@@ -523,15 +587,8 @@ class TadoClimate(ClimateEntity):
             old_action = self._attr_hvac_action
             self._attr_hvac_mode = HVACMode.HEAT
             self._overlay_type = "MANUAL"
-            # v1.9.5: Set hvac_action based on target vs current temperature (#44)
-            # This fixes the issue where hvac_action doesn't update correctly after switching to HEAT mode.
-            if self._attr_current_temperature is not None:
-                if temp > self._attr_current_temperature:
-                    # Target above current = will heat
-                    self._attr_hvac_action = HVACAction.HEATING
-                else:
-                    # Target at or below current = idle (already at/above target)
-                    self._attr_hvac_action = HVACAction.IDLE
+            # v1.9.6: Use helper method for hvac_action calculation
+            self._attr_hvac_action = self._calculate_hvac_action(target_temp=temp)
             self._optimistic_set_at = time.time()
             self.async_write_ha_state()
             
@@ -634,7 +691,7 @@ class TadoClimate(ClimateEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, reason)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
 
     async def async_set_timer(self, temperature: float, duration_minutes: int = None, overlay: str = None) -> bool:
         """Set temperature with timer or overlay type.
@@ -667,7 +724,6 @@ class TadoClimate(ClimateEntity):
             term_desc = "manually"
         
         # v1.9.2: Added timeout protection for consistency
-        import asyncio
         api_success = False
         try:
             async with asyncio.timeout(10):
@@ -844,20 +900,97 @@ class TadoACClimate(ClimateEntity):
         # v1.9.3: Unsubscribe callback for zones_updated signal
         self._unsub_zones_updated = None
 
+    # ========== v1.9.6: Helper Methods ==========
+    
+    def _get_debounce_window(self) -> float:
+        """Get the optimistic update debounce window in seconds.
+        
+        v1.9.6: Extracted to helper method to reduce code duplication.
+        
+        Returns:
+            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
+        """
+        try:
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if config_manager:
+                return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+        except Exception:
+            pass
+        return 17.0  # Default fallback (15s debounce + 2s buffer)
+    
+    def _is_within_optimistic_window(self) -> bool:
+        """Check if we're within the optimistic update window.
+        
+        v1.9.6: Extracted to helper method to reduce code duplication.
+        
+        Returns:
+            True if _optimistic_set_at is set and elapsed time < debounce window.
+        """
+        if self._optimistic_set_at is None:
+            return False
+        elapsed = time.time() - self._optimistic_set_at
+        return elapsed < self._get_debounce_window()
+    
+    def _calculate_hvac_action(self, hvac_mode: HVACMode = None, ac_power_on: bool = None) -> HVACAction:
+        """Calculate hvac_action for AC zone.
+        
+        v1.9.6: Single source of truth for hvac_action calculation.
+        Used by both update() and async_set_*() methods to ensure consistency.
+        
+        Args:
+            hvac_mode: Optional mode for optimistic updates.
+                      If None, uses self._attr_hvac_mode.
+            ac_power_on: Optional AC power state from API.
+                        If None, assumes AC is ON (for optimistic updates).
+                        If False, returns IDLE (API confirms AC is off).
+        
+        Returns:
+            HVACAction based on mode (COOLING, HEATING, DRYING, FAN, IDLE, or OFF)
+        """
+        mode = hvac_mode if hvac_mode is not None else self._attr_hvac_mode
+        
+        # OFF mode always returns OFF
+        if mode == HVACMode.OFF:
+            return HVACAction.OFF
+        
+        # If API confirms AC is off, return IDLE
+        if ac_power_on is False:
+            return HVACAction.IDLE
+        
+        # Mode-based action (AC is ON or assumed ON for optimistic)
+        if mode == HVACMode.COOL:
+            return HVACAction.COOLING
+        elif mode == HVACMode.HEAT:
+            return HVACAction.HEATING
+        elif mode == HVACMode.DRY:
+            return HVACAction.DRYING
+        elif mode == HVACMode.FAN_ONLY:
+            return HVACAction.FAN
+        elif mode == HVACMode.HEAT_COOL:
+            # Tado AUTO mode - AC decides to heat or cool as needed
+            return HVACAction.IDLE
+        
+        return HVACAction.IDLE
+
+    # ========== End Helper Methods ==========
+
     async def async_added_to_hass(self):
         """Register signal listener when entity is added to hass.
         
         v1.9.3: Listen for SIGNAL_ZONES_UPDATED to force immediate update
         after zones.json is refreshed. This fixes the grey loading state
         issue (#44) where entities wait for SCAN_INTERVAL (30s).
+        
+        v1.9.6: Don't clear _optimistic_set_at here - let update() preserve
+        optimistic hvac_action if API hasn't caught up yet (#44).
         """
         await super().async_added_to_hass()
         
         @callback
         def _handle_zones_updated():
             """Handle zones.json update signal."""
-            # Clear optimistic state so update() reads fresh data
-            self._optimistic_set_at = None
+            # v1.9.6: Don't clear _optimistic_set_at - update() will preserve
+            # optimistic hvac_action if ac_power hasn't updated yet (#44)
             # Schedule immediate update
             self.async_schedule_update_ha_state(True)
             _LOGGER.debug(f"AC {self._zone_name}: Received zones_updated signal, scheduling update")
@@ -888,26 +1021,10 @@ class TadoACClimate(ClimateEntity):
 
     def update(self):
         """Update AC climate state from JSON file."""
-        # Skip update if within optimistic debounce window
-        if self._optimistic_set_at is not None:
-            import time
-            elapsed = time.time() - self._optimistic_set_at
-            # Get debounce delay from config + 2s buffer for API response time
-            debounce_window = 17.0  # Default fallback
-            try:
-                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-                if config_manager:
-                    debounce_window = float(config_manager.get_refresh_debounce_seconds()) + 2.0
-            except Exception:
-                pass  # Use default if config unavailable
-            
-            if elapsed < debounce_window:
-                _LOGGER.debug(f"AC {self._zone_name}: [UPDATE-SKIP] Optimistic active ({elapsed:.1f}s < {debounce_window}s), current mode={self._attr_hvac_mode}")
-                return
-            else:
-                # Clear optimistic state after window expires
-                _LOGGER.debug(f"AC {self._zone_name}: [UPDATE-CLEAR] Optimistic expired ({elapsed:.1f}s >= {debounce_window}s)")
-                self._optimistic_set_at = None
+        # v1.9.6: Removed the early return for optimistic debounce window.
+        # We now let update() run but preserve optimistic hvac_action if API
+        # hasn't caught up yet. This allows other attributes (current_temperature,
+        # humidity, etc.) to update while keeping the optimistic hvac_action.
         
         try:
             with open(CONFIG_FILE) as f:
@@ -941,9 +1058,6 @@ class TadoACClimate(ClimateEntity):
                 ac_power_value = ac_power.get('value')  # 'ON' or 'OFF'
                 # Keep percentage for backwards compatibility attribute
                 self._ac_power_percentage = ac_power.get('percentage')
-                
-                # Debug logging for turn-off race condition investigation (#44)
-                _LOGGER.debug(f"AC {self._zone_name}: [UPDATE-DATA] API power={ac_power_value}, current mode={self._attr_hvac_mode}, optimistic_set_at={self._optimistic_set_at}")
                 
                 # Setting
                 setting = zone_data.get('setting') or {}
@@ -979,24 +1093,34 @@ class TadoACClimate(ClimateEntity):
                         self._attr_swing_mode = "off"
                     
                     # HVAC action - based on acPower.value ('ON'/'OFF')
-                    if ac_power_value == 'ON':
-                        if tado_mode == 'COOL':
-                            self._attr_hvac_action = HVACAction.COOLING
-                        elif tado_mode == 'HEAT':
-                            self._attr_hvac_action = HVACAction.HEATING
-                        elif tado_mode == 'DRY':
-                            self._attr_hvac_action = HVACAction.DRYING
-                        elif tado_mode == 'FAN':
-                            self._attr_hvac_action = HVACAction.FAN
+                    # v1.9.6: Use helper method for hvac_action calculation
+                    ac_power_on = (ac_power_value == 'ON')
+                    new_hvac_action = self._calculate_hvac_action(ac_power_on=ac_power_on)
+                    
+                    # v1.9.6: Use helper method for optimistic window check
+                    if self._is_within_optimistic_window():
+                        # Preserve optimistic action if API shows IDLE but we set an active action
+                        if self._attr_hvac_action in [HVACAction.COOLING, HVACAction.HEATING, HVACAction.DRYING, HVACAction.FAN] and new_hvac_action == HVACAction.IDLE:
+                            _LOGGER.debug(f"AC {self._zone_name}: Preserving optimistic hvac_action={self._attr_hvac_action} (API shows IDLE)")
                         else:
-                            self._attr_hvac_action = HVACAction.IDLE
+                            self._attr_hvac_action = new_hvac_action
                     else:
-                        self._attr_hvac_action = HVACAction.IDLE
+                        # Window expired or no optimistic state, use calculated action
+                        self._attr_hvac_action = new_hvac_action
+                        if self._optimistic_set_at is not None:
+                            self._optimistic_set_at = None
                 else:
                     # Power is OFF - keep last temperature for reference
-                    # Don't set self._attr_target_temperature = None
-                    self._attr_hvac_mode = HVACMode.OFF
-                    self._attr_hvac_action = HVACAction.OFF
+                    # v1.9.6: Use helper method for optimistic window check
+                    if self._is_within_optimistic_window():
+                        # Preserve optimistic state - don't overwrite to OFF
+                        _LOGGER.debug(f"AC {self._zone_name}: Preserving optimistic state (API shows power=OFF but within window)")
+                    else:
+                        # Window expired or no optimistic state, trust API
+                        if self._optimistic_set_at is not None:
+                            self._optimistic_set_at = None
+                        self._attr_hvac_mode = HVACMode.OFF
+                        self._attr_hvac_action = HVACAction.OFF
                 
                 self._attr_available = True
                 
@@ -1004,7 +1128,7 @@ class TadoACClimate(ClimateEntity):
                 self._record_smart_comfort_data(ac_power_value)
                 
         except Exception as e:
-            _LOGGER.debug(f"Failed to update {self.name}: {e}")
+            _LOGGER.warning(f"Failed to update {self.name}: {e}")
             self._attr_available = False
 
     async def async_set_temperature(self, **kwargs):
@@ -1016,8 +1140,6 @@ class TadoACClimate(ClimateEntity):
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
         """
-        import time
-        import asyncio
         temperature = kwargs.get(ATTR_TEMPERATURE)
         hvac_mode = kwargs.get(ATTR_HVAC_MODE)
         
@@ -1055,33 +1177,9 @@ class TadoACClimate(ClimateEntity):
         # If AC is OFF, setting temperature will turn it ON
         if old_mode == HVACMode.OFF:
             self._attr_hvac_mode = hvac_mode if hvac_mode else HVACMode.COOL
-            # Set hvac_action based on the new mode
-            if self._attr_hvac_mode == HVACMode.COOL:
-                self._attr_hvac_action = HVACAction.COOLING
-            elif self._attr_hvac_mode == HVACMode.HEAT:
-                self._attr_hvac_action = HVACAction.HEATING
-            elif self._attr_hvac_mode == HVACMode.DRY:
-                self._attr_hvac_action = HVACAction.DRYING
-            elif self._attr_hvac_mode == HVACMode.FAN_ONLY:
-                self._attr_hvac_action = HVACAction.FAN
-            elif self._attr_hvac_mode == HVACMode.HEAT_COOL:
-                # Tado AUTO mode - AC decides to heat or cool as needed
-                self._attr_hvac_action = HVACAction.IDLE
-            else:
-                self._attr_hvac_action = HVACAction.COOLING  # Default fallback
-        else:
-            # v1.9.5: AC is already ON - set hvac_action based on current mode (#44)
-            # This fixes the issue where hvac_action doesn't update when changing temperature
-            current_mode = self._attr_hvac_mode
-            if current_mode == HVACMode.COOL:
-                self._attr_hvac_action = HVACAction.COOLING
-            elif current_mode == HVACMode.HEAT:
-                self._attr_hvac_action = HVACAction.HEATING
-            elif current_mode == HVACMode.DRY:
-                self._attr_hvac_action = HVACAction.DRYING
-            elif current_mode == HVACMode.FAN_ONLY:
-                self._attr_hvac_action = HVACAction.FAN
-            # HEAT_COOL (Tado AUTO) - keep current action, let API response determine
+        
+        # v1.9.6: Use helper method for hvac_action calculation
+        self._attr_hvac_action = self._calculate_hvac_action()
         
         self._overlay_type = "MANUAL"
         self._optimistic_set_at = time.time()
@@ -1115,14 +1213,9 @@ class TadoACClimate(ClimateEntity):
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
         """
-        import time
-        import asyncio
         client = get_async_client(self.hass)
         
         if hvac_mode == HVACMode.OFF:
-            # Debug logging for turn-off race condition investigation (#44)
-            _LOGGER.debug(f"AC {self._zone_name}: [OFF-1] Turn OFF requested, current mode={self._attr_hvac_mode}, action={self._attr_hvac_action}")
-            
             # Optimistic update BEFORE API call
             old_mode = self._attr_hvac_mode
             old_action = self._attr_hvac_action
@@ -1130,8 +1223,6 @@ class TadoACClimate(ClimateEntity):
             self._attr_hvac_action = HVACAction.OFF
             self._overlay_type = "MANUAL"
             self._optimistic_set_at = time.time()
-            
-            _LOGGER.debug(f"AC {self._zone_name}: [OFF-2] Optimistic state set, _optimistic_set_at={self._optimistic_set_at:.2f}")
             self.async_write_ha_state()
             
             setting = {
@@ -1144,20 +1235,17 @@ class TadoACClimate(ClimateEntity):
             api_success = False
             try:
                 async with asyncio.timeout(10):
-                    _LOGGER.debug(f"AC {self._zone_name}: [OFF-3] Calling API set_zone_overlay...")
                     api_success = await client.set_zone_overlay(self._zone_id, setting, termination)
-                    _LOGGER.debug(f"AC {self._zone_name}: [OFF-4] API result={api_success}")
             except asyncio.TimeoutError:
-                _LOGGER.warning(f"AC {self._zone_name}: [OFF-TIMEOUT] API call timed out")
+                _LOGGER.warning(f"AC TIMEOUT: {self._zone_name} OFF mode API call timed out")
             except Exception as e:
-                _LOGGER.warning(f"AC {self._zone_name}: [OFF-ERROR] API call failed ({e})")
+                _LOGGER.warning(f"AC ERROR: {self._zone_name} OFF mode API call failed ({e})")
             
             if api_success:
-                _LOGGER.debug(f"AC {self._zone_name}: [OFF-5] Triggering immediate refresh")
+                _LOGGER.info(f"AC Set {self._zone_name} to OFF mode")
                 await self._async_trigger_immediate_refresh("hvac_mode_change")
-                _LOGGER.debug(f"AC {self._zone_name}: [OFF-6] Immediate refresh complete")
             else:
-                _LOGGER.debug(f"AC {self._zone_name}: [OFF-FAIL] Rolling back to mode={old_mode}, action={old_action}")
+                _LOGGER.warning(f"AC ROLLBACK: {self._zone_name} OFF mode failed")
                 self._attr_hvac_mode = old_mode
                 self._attr_hvac_action = old_action
                 self._optimistic_set_at = None
@@ -1227,19 +1315,8 @@ class TadoACClimate(ClimateEntity):
             if not self._attr_fan_mode:
                 self._attr_fan_mode = "auto"
             
-            # Set hvac_action based on mode
-            if hvac_mode == HVACMode.HEAT:
-                self._attr_hvac_action = HVACAction.HEATING
-            elif hvac_mode == HVACMode.COOL:
-                self._attr_hvac_action = HVACAction.COOLING
-            elif hvac_mode == HVACMode.DRY:
-                self._attr_hvac_action = HVACAction.DRYING
-            elif hvac_mode == HVACMode.FAN_ONLY:
-                self._attr_hvac_action = HVACAction.FAN
-            elif hvac_mode == HVACMode.HEAT_COOL:
-                # Tado AUTO mode - AC decides to heat or cool as needed
-                # Set to IDLE initially; actual action determined by AC unit
-                self._attr_hvac_action = HVACAction.IDLE
+            # v1.9.6: Use helper method for hvac_action calculation
+            self._attr_hvac_action = self._calculate_hvac_action()
             
             self._optimistic_set_at = time.time()
             self.async_write_ha_state()
@@ -1272,8 +1349,6 @@ class TadoACClimate(ClimateEntity):
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
         """
-        import time
-        import asyncio
         # Optimistic update BEFORE API call
         old_fan = self._attr_fan_mode
         old_mode = self._attr_hvac_mode
@@ -1284,8 +1359,10 @@ class TadoACClimate(ClimateEntity):
         # If AC is OFF, setting fan mode will turn it ON
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_mode = HVACMode.COOL  # Default mode when turning on via fan
-            self._attr_hvac_action = HVACAction.COOLING
             self._overlay_type = "MANUAL"
+        
+        # v1.9.6: Use helper method for hvac_action calculation
+        self._attr_hvac_action = self._calculate_hvac_action()
         
         self._optimistic_set_at = time.time()
         self.async_write_ha_state()
@@ -1325,8 +1402,6 @@ class TadoACClimate(ClimateEntity):
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
         """
-        import time
-        import asyncio
         if swing_mode == "off":
             v_swing, h_swing = "OFF", "OFF"
         elif swing_mode == "vertical":
@@ -1350,8 +1425,10 @@ class TadoACClimate(ClimateEntity):
         # If AC is OFF, setting swing mode will turn it ON
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_mode = HVACMode.COOL  # Default mode when turning on via swing
-            self._attr_hvac_action = HVACAction.COOLING
             self._overlay_type = "MANUAL"
+        
+        # v1.9.6: Use helper method for hvac_action calculation
+        self._attr_hvac_action = self._calculate_hvac_action()
         
         self._optimistic_set_at = time.time()
         self.async_write_ha_state()
@@ -1384,7 +1461,7 @@ class TadoACClimate(ClimateEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, reason)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
 
     async def _async_set_ac_overlay(self, temperature: float = None, mode: str = None, 
                                     fan_level: str = None, vertical_swing: str = None,
@@ -1473,7 +1550,6 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.2: Added timeout protection for consistency.
         """
-        import asyncio
         api_success = False
         try:
             async with asyncio.timeout(10):

@@ -2,6 +2,21 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [1.9.6] - 2026-02-04
+
+**Optimistic Update Consistency Fix** - Fixed hvac_action reverting after state changes.
+
+### Bug Fixes
+- **Fixed hvac_action reverting to IDLE after state change** - When setting temperature higher than current, hvac_action now stays at "Heating" consistently instead of reverting to "Idle" after ~17 seconds ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @hapklaar, @chinezbrun)
+
+### Improvements
+- **Improved state consistency for all entity types** - Hot water and switch entities now have the same optimistic update protection as climate entities, preventing UI bounce-back after user actions
+- **Better API failure handling** - All entities now properly rollback to previous state if API call fails
+- **Added Known Issue warning in Configure dialog** - Options page now shows warning about EntitySelector limitation with link to workaround ([Discussion #76](https://github.com/hiall-fyi/tado_ce/discussions/76))
+
+### Contributors
+Thanks to [@hapklaar](https://github.com/hapklaar) and [@chinezbrun](https://github.com/chinezbrun) for continued testing!
+
 ## [1.9.5] - 2026-02-02
 
 **Hotfix: hvac_action not updating for changed zone** - Optimistic updates now set hvac_action correctly when setting temperature.

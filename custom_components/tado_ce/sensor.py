@@ -229,7 +229,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                 if 'connectionState' in device:
                     sensors.append(TadoDeviceConnectionSensor(zone_id, zone_name, zone_type, device, zones_info))
     except Exception as e:
-        _LOGGER.debug(f"Failed to load device info: {e}")
+        _LOGGER.warning(f"Failed to load device info: {e}")
     
     async_add_entities(sensors, True)
     _LOGGER.info(f"Tado CE sensors loaded: {len(sensors)}")

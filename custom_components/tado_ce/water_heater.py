@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.components.water_heater import (
@@ -80,6 +81,42 @@ class TadoWaterHeater(WaterHeaterEntity):
         self._attr_operation_list = OPERATION_MODES
         
         self._overlay_type = None
+        
+        # v1.9.6: Optimistic update tracking (parity with climate entities)
+        self._optimistic_set_at: float | None = None
+
+    # ========== v1.9.6: Helper Methods ==========
+    
+    def _get_debounce_window(self) -> float:
+        """Get the optimistic update debounce window in seconds.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
+        """
+        try:
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if config_manager:
+                return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+        except Exception:
+            pass
+        return 17.0  # Default fallback (15s debounce + 2s buffer)
+    
+    def _is_within_optimistic_window(self) -> bool:
+        """Check if we're within the optimistic update window.
+        
+        v1.9.6: Extracted to helper method for consistency with climate entities.
+        
+        Returns:
+            True if _optimistic_set_at is set and elapsed time < debounce window.
+        """
+        if self._optimistic_set_at is None:
+            return False
+        elapsed = time.time() - self._optimistic_set_at
+        return elapsed < self._get_debounce_window()
+
+    # ========== End Helper Methods ==========
 
     @property
     def extra_state_attributes(self):
@@ -89,7 +126,10 @@ class TadoWaterHeater(WaterHeaterEntity):
         }
 
     def update(self):
-        """Update water heater state from JSON file."""
+        """Update water heater state from JSON file.
+        
+        v1.9.6: Added optimistic window protection (parity with climate entities).
+        """
         _LOGGER.debug(f"TadoWaterHeater.update() called for {self._zone_name} (zone {self._zone_id})")
         try:
             with open(CONFIG_FILE) as f:
@@ -134,6 +174,16 @@ class TadoWaterHeater(WaterHeaterEntity):
                     )
                     _LOGGER.debug(f"Hot water zone {self._zone_name} supports temperature control")
                 
+                # v1.9.6: Preserve optimistic state if within window
+                if self._is_within_optimistic_window():
+                    _LOGGER.debug(f"Hot water {self._zone_name}: Preserving optimistic state (within window)")
+                    self._attr_available = True
+                    return
+                
+                # Window expired, clear optimistic tracking
+                if self._optimistic_set_at is not None:
+                    self._optimistic_set_at = None
+                
                 # Detect current operation mode based on overlay state
                 if not overlay or self._overlay_type is None:
                     # No overlay = following schedule
@@ -170,14 +220,28 @@ class TadoWaterHeater(WaterHeaterEntity):
         """Set new operation mode with retry logic (async).
         
         Uses TadoAsyncClient for non-blocking API calls.
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
         """
         from .async_api import get_async_client
         
-        # Store previous operation mode for rollback on failure
+        # Store previous state for rollback on failure
         previous_mode = self._attr_current_operation
+        previous_overlay = self._overlay_type
+        
+        # v1.9.6: Optimistic update BEFORE API call
+        self._attr_current_operation = operation_mode
+        if operation_mode == STATE_AUTO:
+            self._overlay_type = None
+        elif operation_mode == STATE_HEAT:
+            self._overlay_type = "TIMER"
+        elif operation_mode == STATE_OFF:
+            self._overlay_type = "MANUAL"
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
+        
         success = False
         max_retries = 2  # Initial attempt + 1 retry
-        
         client = get_async_client(self.hass)
         
         for attempt in range(max_retries):
@@ -185,9 +249,6 @@ class TadoWaterHeater(WaterHeaterEntity):
                 # AUTO mode: Delete overlay to follow schedule
                 success = await client.delete_zone_overlay(self._zone_id)
                 if success:
-                    self._attr_current_operation = STATE_AUTO
-                    self._overlay_type = None
-                    self.async_write_ha_state()  # Optimistic update
                     _LOGGER.info(f"Resumed schedule for {self._zone_name}")
                     await self._async_trigger_immediate_refresh("hot_water_auto")
                     break
@@ -196,18 +257,12 @@ class TadoWaterHeater(WaterHeaterEntity):
                 duration = self._get_timer_duration()
                 success = await self._async_set_timer(duration, None)
                 if success:
-                    self._attr_current_operation = STATE_HEAT
-                    self._overlay_type = "TIMER"
-                    self.async_write_ha_state()  # Optimistic update
                     await self._async_trigger_immediate_refresh("hot_water_heat")
                     break
             elif operation_mode == STATE_OFF:
                 # OFF mode: Turn off with manual overlay
                 success = await self._async_turn_off()
                 if success:
-                    self._attr_current_operation = STATE_OFF
-                    self._overlay_type = "MANUAL"
-                    self.async_write_ha_state()  # Optimistic update
                     await self._async_trigger_immediate_refresh("hot_water_off")
                     break
             
@@ -221,11 +276,13 @@ class TadoWaterHeater(WaterHeaterEntity):
         
         if not success:
             _LOGGER.error(
-                f"Failed to set operation mode to {operation_mode} after {max_retries} attempts. "
-                f"Keeping previous mode: {previous_mode}"
+                f"ROLLBACK: Failed to set operation mode to {operation_mode} after {max_retries} attempts."
             )
-            # Restore previous operation mode
+            # Rollback to previous state
             self._attr_current_operation = previous_mode
+            self._overlay_type = previous_overlay
+            self._optimistic_set_at = None
+            self.async_write_ha_state()
     
     def set_operation_mode(self, operation_mode: str):
         """Set new operation mode (sync wrapper for backward compatibility).
@@ -258,7 +315,7 @@ class TadoWaterHeater(WaterHeaterEntity):
             handler = get_handler(self.hass)
             await handler.trigger_refresh(self.entity_id, reason)
         except Exception as e:
-            _LOGGER.debug(f"Failed to trigger immediate refresh: {e}")
+            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
 
     async def _async_turn_on(self) -> bool:
         """Turn on hot water (async)."""
@@ -335,6 +392,8 @@ class TadoWaterHeater(WaterHeaterEntity):
         """Set new target temperature (async).
         
         For hot water systems that support temperature control (e.g., hot water tanks).
+        
+        v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
         """
         from .async_api import get_async_client
         
@@ -351,6 +410,18 @@ class TadoWaterHeater(WaterHeaterEntity):
             _LOGGER.error("No home_id configured")
             return
         
+        # Store previous state for rollback
+        old_temp = self._attr_target_temperature
+        old_operation = self._attr_current_operation
+        old_overlay = self._overlay_type
+        
+        # v1.9.6: Optimistic update BEFORE API call
+        self._attr_target_temperature = temperature
+        self._attr_current_operation = STATE_HEAT
+        self._overlay_type = "MANUAL"
+        self._optimistic_set_at = time.time()
+        self.async_write_ha_state()
+        
         client = get_async_client(self.hass)
         
         # Set temperature with manual overlay
@@ -361,11 +432,22 @@ class TadoWaterHeater(WaterHeaterEntity):
         }
         termination = {"type": "MANUAL"}
         
-        success = await client.set_zone_overlay(self._zone_id, setting, termination)
-        if success:
-            self._attr_target_temperature = temperature
-            self._attr_current_operation = STATE_HEAT
-            self._overlay_type = "MANUAL"
-            self.async_write_ha_state()  # Optimistic update
+        api_success = False
+        try:
+            async with asyncio.timeout(10):
+                api_success = await client.set_zone_overlay(self._zone_id, setting, termination)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(f"TIMEOUT: {self._zone_name} temperature API call timed out")
+        except Exception as e:
+            _LOGGER.warning(f"ERROR: {self._zone_name} temperature API call failed ({e})")
+        
+        if api_success:
             _LOGGER.info(f"Set {self._zone_name} temperature to {temperature}°C")
             await self._async_trigger_immediate_refresh("hot_water_temperature")
+        else:
+            _LOGGER.warning(f"ROLLBACK: {self._zone_name} temperature change failed")
+            self._attr_target_temperature = old_temp
+            self._attr_current_operation = old_operation
+            self._overlay_type = old_overlay
+            self._optimistic_set_at = None
+            self.async_write_ha_state()

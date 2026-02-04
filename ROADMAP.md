@@ -6,9 +6,9 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v2.0.0 - Multiple Homes Enabled + ML Predictions
+## v2.0.0 - Multiple Homes Enabled
 
-Major release enabling full multi-home support and ML-based predictions.
+Major release enabling full multi-home support.
 
 ### ✅ Completed for v2.0.0
 
@@ -18,16 +18,6 @@ Major release enabling full multi-home support and ML-based predictions.
 - [x] **Hub device identifier with home_id** - `tado_ce_hub_{home_id}` format
 
 ### 🔲 Remaining for v2.0.0
-
-**Regression-Based Predictive Models** (Self-Learning):
-- [ ] **Linear Regression Framework** - NumPy OLS implementation for per-zone predictions
-- [ ] **Heating Rate Prediction** - ML-based heating rate using delta_temp, valve%, power, time features
-- [ ] **Comfort Level Estimation** - Multi-factor comfort score (temp, humidity, rate)
-- [ ] **Time to Target Prediction** - Accurate ETA based on learned heating patterns
-- [ ] **Heating Intensity Advisor** - Suggest target temp for desired valve % (indirect valve control)
-- [ ] **Cold Start Handling** - Graceful fallback during learning period (1-2 weeks)
-- [ ] **Model Persistence** - Training data survives HA restarts, 30-day rolling window
-- [ ] **Feature Importance** - Expose which factors affect predictions most
 
 **API Monitoring Enhancements** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65)):
 - [ ] **Call History Sensor** - Separate sensor for Activity card visualization
@@ -64,6 +54,7 @@ Major release enabling full multi-home support and ML-based predictions.
 Features under consideration - need more community feedback or technical research.
 
 **Heating Intelligence:**
+- **Second Order Approximation for Preheat** - Use quadratic model (heating acceleration/deceleration) instead of linear rate for more accurate preheat timing. Accounts for: heating slowing as approaching target, thermal momentum of UFH, cooling rate before heating starts ([#78](https://github.com/hiall-fyi/tado_ce/issues/78) - @dimitri-frank, @thefern69)
 - **Preheat Binary Sensor** - `binary_sensor.zone_preheat_now` that turns ON when it's time to start heating ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 - **Turnkey Early Start Replacement** - Auto-trigger heating at recommended preheat time, stop when target reached or next schedule starts ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 - **UFH Slow Response Mode** - Add buffer time for underfloor heating thermal lag ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)

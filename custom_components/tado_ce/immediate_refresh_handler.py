@@ -2,8 +2,9 @@
 
 Handles immediate data refresh after user-initiated state changes.
 """
-import logging
+import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -224,8 +225,6 @@ class ImmediateRefreshHandler:
         
         # Schedule debounced refresh
         async def _debounced_refresh():
-            import asyncio
-            
             # Skip debounce delay if requested (for buttons like Resume All Schedules)
             if not skip_debounce:
                 delay = self._get_debounce_delay()
@@ -273,7 +272,6 @@ class ImmediateRefreshHandler:
                     f"Next backoff: {self._get_backoff_interval()}s"
                 )
         
-        import asyncio
         self._debounce_task = asyncio.create_task(_debounced_refresh())
     
     async def _async_fetch_zone_states(self):

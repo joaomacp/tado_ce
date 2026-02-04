@@ -62,7 +62,7 @@
     "step": {
       "init": {
         "title": "Tado CE Options",
-        "description": "Configure Tado CE integration settings.",
+        "description": "Configure Tado CE integration settings.\n\n⚠️ **Known Issue:** If options don't save after clicking Submit, please select an entity in 'Outdoor Temperature Entity' field (e.g., weather.home). This is a [Home Assistant Core limitation](https://github.com/home-assistant/core/issues/154795). See [Discussion #76](https://github.com/hiall-fyi/tado_ce/discussions/76) for details.",
         "sections": {
           "features": {
             "name": "Features",
@@ -135,7 +135,8 @@
     },
     "error": {
       "interval_out_of_range": "Polling interval must be between 1 and 1440 minutes",
-      "invalid_number": "Please enter a valid number"
+      "invalid_number": "Please enter a valid number",
+      "entity_selector_empty": "⚠️ Known Issue: Please select an entity in 'Outdoor Temperature Entity' field (e.g., weather.home). This is a Home Assistant Core limitation. See Discussion #76 for details."
     }
   }
 }
