@@ -272,14 +272,15 @@ class TadoClimate(ClimateEntity):
     def _calculate_hvac_action(self, target_temp: float = None) -> HVACAction:
         """Calculate hvac_action for heating zone.
         
-        v1.9.6: Single source of truth for hvac_action calculation.
-        Used by both update() and async_set_*() methods to ensure consistency.
+        v1.10.0: Updated for optimistic update fix (Issue #44).
         
         Priority:
         1. If hvac_mode == OFF → OFF
-        2. If heating_power > 0 → HEATING (API confirms active heating)
-        3. If hvac_mode == HEAT and target > current + 0.5 → HEATING (temperature fallback)
-        4. Otherwise → IDLE
+        2. If in optimistic window with expected action → return expected action
+        3. If heating_power > 0 → HEATING (API confirms active heating)
+        4. If hvac_mode == HEAT and target provided → HEATING (optimistic)
+        5. If hvac_mode == HEAT and target > current + 0.5 → HEATING (temperature fallback)
+        6. Otherwise → IDLE
         
         Args:
             target_temp: Optional target temperature for optimistic updates.
@@ -292,14 +293,24 @@ class TadoClimate(ClimateEntity):
         if self._attr_hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
         
+        # v1.10.0: If we have optimistic state with expected action, use it
+        # This ensures optimistic updates work even when current temp >= target
+        if self._expected_hvac_action is not None:
+            return self._expected_hvac_action
+        
         # API confirms heating (highest priority when available)
         if self._heating_power and self._heating_power > 0:
+            return HVACAction.HEATING
+        
+        # v1.10.0: If target_temp is provided (optimistic call), assume HEATING
+        # This handles the case where user sets temp but current >= target
+        if target_temp is not None and self._attr_hvac_mode == HVACMode.HEAT:
             return HVACAction.HEATING
         
         # Temperature-aware fallback for HEAT mode
         # This handles the case where API hasn't updated heating_power yet
         if self._attr_hvac_mode == HVACMode.HEAT:
-            target = target_temp if target_temp is not None else self._attr_target_temperature
+            target = self._attr_target_temperature
             current = self._attr_current_temperature
             if target is not None and current is not None:
                 # 0.5°C buffer for hysteresis to prevent flip-flopping
@@ -1044,8 +1055,13 @@ class TadoACClimate(ClimateEntity):
     def _calculate_hvac_action(self, hvac_mode: HVACMode = None, ac_power_on: bool = None) -> HVACAction:
         """Calculate hvac_action for AC zone.
         
-        v1.9.6: Single source of truth for hvac_action calculation.
-        Used by both update() and async_set_*() methods to ensure consistency.
+        v1.10.0: Updated for optimistic update fix (Issue #44).
+        
+        Priority:
+        1. If hvac_mode == OFF → OFF
+        2. If in optimistic window with expected action → return expected action
+        3. If API confirms AC is off → IDLE
+        4. Mode-based action (COOL→COOLING, HEAT→HEATING, etc.)
         
         Args:
             hvac_mode: Optional mode for optimistic updates.
@@ -1062,6 +1078,11 @@ class TadoACClimate(ClimateEntity):
         # OFF mode always returns OFF
         if mode == HVACMode.OFF:
             return HVACAction.OFF
+        
+        # v1.10.0: If we have optimistic state with expected action, use it
+        # This ensures optimistic updates work immediately
+        if self._expected_hvac_action is not None:
+            return self._expected_hvac_action
         
         # If API confirms AC is off, return IDLE
         if ac_power_on is False:
