@@ -4,6 +4,80 @@
 
 ---
 
+## v1.10.0 (2026-02-05) - Coordinator Race Condition Fix
+
+### Bug Reports & Issue Reporters
+
+**[@hapklaar](https://github.com/hapklaar)**, **[@chinezbrun](https://github.com/chinezbrun)**, **[@neonsp](https://github.com/neonsp)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Extensive testing through v1.9.5-v1.9.7 iterations
+- Detailed logs showing race conditions, flickering, and state sync issues
+- Patience through multiple hotfix attempts
+- Real-world testing across different network conditions and geographic locations
+- Identified environmental factors (network latency, ISP routing) affecting race conditions
+
+### What Was Fixed
+
+- ✅ **Issue #44**: Complete architectural fix for coordinator race condition
+  - **Layer 1**: Coordinator-level freshness tracking - entities skip updates for 17s after user actions
+  - **Layer 2**: Sequence number tracking - monotonically increasing sequences, reject stale data
+  - **Layer 3**: Explicit state confirmation - track expected state, clear only on exact match
+- ✅ **Issue #44**: Fixed climate entity flickering during rapid mode changes
+- ✅ **Issue #44**: Fixed state not syncing after mode changes
+- ✅ **Issue #44**: Fixed optimistic updates not working consistently
+- ✅ **Issue #44**: Fixed heating power stuck after mode change
+- ✅ **Issue #44**: Fixed grey loading state during rapid changes
+- ✅ **Issue #44**: Fixed rapid mode changes causing confusion (HEAT→OFF→AUTO)
+
+### Technical Implementation
+
+- **16 property-based tests** validate correctness across all edge cases (100 iterations each)
+- **3 live functional tests** verify real-world behavior with actual HA instance
+- **Both TadoClimate and TadoACClimate** updated (heating/AC parity maintained)
+- **Performance improvement**: Reduced unnecessary API calls via fresh entity protection
+
+### Why v1.9.5-v1.9.7 Failed
+
+Previous versions attempted time-based optimistic windows but couldn't handle:
+- Race conditions (coordinator updates arriving before API confirmation)
+- Out-of-order responses (API responses in different order than requests)
+- Rapid changes (multiple actions within coordinator polling interval)
+- Environmental factors (network latency varying by location, ISP routing, HA load)
+
+---
+
+## v1.9.7 (2026-02-04) - Explicit Optimistic State Tracking
+
+### Bug Reports & Issue Reporters
+
+**[@chinezbrun](https://github.com/chinezbrun)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Reported state flickering when rapidly changing modes (HEAT → OFF → AUTO)
+- Identified that time-based window wasn't tracking WHAT state to preserve
+- Provided detailed logs showing wrong state preservation
+
+### What Was Fixed
+
+- ✅ **Issue #44**: Fixed state flickering during rapid mode changes
+- ✅ **Issue #44**: Fixed wrong state preservation (OFF mode no longer preserves old HEAT state)
+
+---
+
+## v1.9.6 (2026-02-04) - Optimistic Update Consistency Fix
+
+### Bug Reports & Issue Reporters
+
+**[@hapklaar](https://github.com/hapklaar)**, **[@chinezbrun](https://github.com/chinezbrun)** - [Issue #44](https://github.com/hiall-fyi/tado_ce/issues/44)
+- Reported hvac_action reverting to IDLE after ~17 seconds
+- Identified that optimistic update wasn't preserving hvac_action consistently
+- Continued testing and detailed feedback
+
+### What Was Fixed
+
+- ✅ **Issue #44**: hvac_action now stays at "Heating" consistently instead of reverting to "Idle"
+- ✅ Improved state consistency for all entity types (hot water, switches)
+- ✅ Better API failure handling with proper rollback
+
+---
+
 ## v1.9.5 (2026-02-02) - Hotfix: hvac_action not updating
 
 ### Bug Reports & Issue Reporters
@@ -612,9 +686,9 @@
 
 ## 📊 Overall Impact
 
-**Total Issues Addressed:** 22+ issues across all versions
-**Features Implemented:** 25+ new features
-**Bug Fixes:** 15+ critical/high-priority fixes
+**Total Issues Addressed:** 25+ issues across all versions
+**Features Implemented:** 30+ new features
+**Bug Fixes:** 20+ critical/high-priority fixes
 **API Optimization:** 60-70% reduction in API calls
 **Community Engagement:** Active discussions and continuous feedback
 
@@ -624,16 +698,15 @@
 
 The community continues to shape Tado CE's future! Current discussions:
 
-**Planned for v1.6.0:**
-- Better upgrade path testing (beta releases)
+**Completed in v1.10.0:**
+- ✅ Coordinator race condition fix - @hapklaar, @chinezbrun, @neonsp
+- ✅ Climate entity flickering fix - @hapklaar, @chinezbrun, @neonsp
+- ✅ State sync improvements - @hapklaar, @chinezbrun, @neonsp
 
-**Completed in v1.5.4:**
-- ✅ AC fan mode controls - @neonsp
-- ✅ AC swing mode controls (unified dropdown) - @neonsp
-- ✅ All AC control issues fixed - @neonsp
+**Completed in v1.9.4:**
+- ✅ Boost button entity - @greavous1138
 
 **Requested Features:**
-- Boost button entity - @greavous1138
 - Air Comfort sensors (humidity comfort level)
 - Multiple homes support (simultaneous)
 - Max Flow Temperature control (requires OpenTherm) - @ChrisMarriott38
