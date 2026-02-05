@@ -371,10 +371,12 @@ class TadoClimate(ClimateEntity):
 
     def update(self):
         """Update climate state from JSON file."""
-        # v1.9.6: Removed the early return for optimistic debounce window.
-        # We now let update() run but preserve optimistic hvac_action if API
-        # hasn't caught up yet. This allows other attributes (current_temperature,
-        # humidity, etc.) to update while keeping the optimistic hvac_action.
+        # v1.10.0: Layer 1 - Skip update if entity is fresh (coordinator-level protection)
+        # This prevents unnecessary file I/O and processing when entity has recent API call
+        is_entity_fresh = self.hass.data.get(DOMAIN, {}).get('is_entity_fresh')
+        if is_entity_fresh and is_entity_fresh(self.entity_id):
+            _LOGGER.debug(f"{self._zone_name}: Skipping update (entity is fresh)")
+            return
         
         try:
             # Load home_id from config
@@ -1152,10 +1154,12 @@ class TadoACClimate(ClimateEntity):
 
     def update(self):
         """Update AC climate state from JSON file."""
-        # v1.9.6: Removed the early return for optimistic debounce window.
-        # We now let update() run but preserve optimistic hvac_action if API
-        # hasn't caught up yet. This allows other attributes (current_temperature,
-        # humidity, etc.) to update while keeping the optimistic hvac_action.
+        # v1.10.0: Layer 1 - Skip update if entity is fresh (coordinator-level protection)
+        # This prevents unnecessary file I/O and processing when entity has recent API call
+        is_entity_fresh = self.hass.data.get(DOMAIN, {}).get('is_entity_fresh')
+        if is_entity_fresh and is_entity_fresh(self.entity_id):
+            _LOGGER.debug(f"AC {self._zone_name}: Skipping update (entity is fresh)")
+            return
         
         try:
             with open(CONFIG_FILE) as f:
