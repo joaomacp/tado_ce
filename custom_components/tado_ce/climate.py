@@ -959,22 +959,22 @@ class TadoACClimate(ClimateEntity):
         self._overlay_type = None
         self._ac_power_percentage = None
         
-        # v1.9.7: Explicit optimistic state tracking
-        # Instead of just tracking "when" (time-based), we now track "what" (state-based)
-        # This fixes the flickering issue where update() would preserve wrong state
-        self._optimistic_set_at: float | None = None
-        self._optimistic_hvac_mode: HVACMode | None = None  # The mode we're waiting for API to confirm
-        self._optimistic_hvac_action: HVACAction | None = None  # The action we're waiting for API to confirm
+        # v1.10.0: Optimistic state tracking with sequence numbers (Issue #44 fix)
+        # Replaces v1.9.7's flawed state-based tracking with coordinator-aware approach
+        self._optimistic_state: dict | None = None  # Current optimistic state
+        self._optimistic_sequence: int | None = None  # Sequence number of optimistic state
+        self._expected_hvac_mode: HVACMode | None = None  # Expected mode after API call
+        self._expected_hvac_action: HVACAction | None = None  # Expected action after API call
         
         # v1.9.3: Unsubscribe callback for zones_updated signal
         self._unsub_zones_updated = None
 
-    # ========== v1.9.6: Helper Methods ==========
+    # ========== v1.10.0: Helper Methods (Updated for Issue #44 fix) ==========
     
     def _get_debounce_window(self) -> float:
         """Get the optimistic update debounce window in seconds.
         
-        v1.9.6: Extracted to helper method to reduce code duplication.
+        v1.10.0: Extracted to helper method to reduce code duplication.
         
         Returns:
             Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
@@ -987,47 +987,59 @@ class TadoACClimate(ClimateEntity):
             pass
         return 17.0  # Default fallback (15s debounce + 2s buffer)
     
-    def _is_within_optimistic_window(self) -> bool:
-        """Check if we're within the optimistic update window.
-        
-        v1.9.6: Extracted to helper method to reduce code duplication.
-        
-        Returns:
-            True if _optimistic_set_at is set and elapsed time < debounce window.
-        """
-        if self._optimistic_set_at is None:
-            return False
-        elapsed = time.time() - self._optimistic_set_at
-        return elapsed < self._get_debounce_window()
-    
     def _clear_optimistic_state(self):
         """Clear all optimistic state tracking.
         
-        v1.9.7: Centralized method to clear optimistic state.
+        v1.10.0: Updated for sequence-based tracking (Issue #44 fix).
         Called when:
         - API confirms the expected state
         - Optimistic window expires
         - API call fails (rollback)
         """
-        self._optimistic_set_at = None
-        self._optimistic_hvac_mode = None
-        self._optimistic_hvac_action = None
+        self._optimistic_state = None
+        self._optimistic_sequence = None
+        self._expected_hvac_mode = None
+        self._expected_hvac_action = None
     
-    def _set_optimistic_state(self, hvac_mode: HVACMode, hvac_action: HVACAction):
-        """Set optimistic state with explicit mode and action tracking.
+    def _set_optimistic_state(self, hvac_mode: HVACMode, hvac_action: HVACAction, target_temp: float = None):
+        """Set optimistic state with sequence number tracking.
         
-        v1.9.7: Instead of just tracking time, we now track the expected state.
-        This allows update() to only preserve state when API hasn't caught up
-        to the SPECIFIC state we're expecting, not just "any recent change".
+        v1.10.0: Updated for coordinator-aware optimistic updates (Issue #44 fix).
+        Instead of time-based tracking, we now use sequence numbers and mark
+        the entity as fresh in the coordinator to prevent stale data overwrites.
         
         Args:
             hvac_mode: The HVAC mode we expect API to confirm
             hvac_action: The HVAC action we expect API to confirm
+            target_temp: Optional target temperature for optimistic state
         """
-        self._optimistic_set_at = time.time()
-        self._optimistic_hvac_mode = hvac_mode
-        self._optimistic_hvac_action = hvac_action
-        _LOGGER.debug(f"{self._zone_name}: Set optimistic state: mode={hvac_mode}, action={hvac_action}")
+        # Get sequence number from coordinator
+        get_next_sequence = self.hass.data.get(DOMAIN, {}).get('get_next_sequence')
+        if get_next_sequence:
+            self._optimistic_sequence = get_next_sequence()
+        else:
+            _LOGGER.warning(f"AC {self._zone_name}: get_next_sequence not available, using fallback")
+            self._optimistic_sequence = int(time.time())
+        
+        # Set optimistic state
+        self._optimistic_state = {
+            "target_temperature": target_temp,
+            "hvac_mode": hvac_mode,
+            "hvac_action": hvac_action,
+            "timestamp": time.time(),
+        }
+        self._expected_hvac_mode = hvac_mode
+        self._expected_hvac_action = hvac_action
+        
+        # Mark entity as fresh in coordinator
+        mark_entity_fresh = self.hass.data.get(DOMAIN, {}).get('mark_entity_fresh')
+        if mark_entity_fresh:
+            # Schedule async call (we're in sync context)
+            asyncio.create_task(mark_entity_fresh(self.entity_id))
+        
+        _LOGGER.debug(
+            f"AC {self._zone_name}: Set optimistic state: mode={hvac_mode}, action={hvac_action}, seq={self._optimistic_sequence}"
+        )
     
     def _calculate_hvac_action(self, hvac_mode: HVACMode = None, ac_power_on: bool = None) -> HVACAction:
         """Calculate hvac_action for AC zone.
@@ -1191,43 +1203,43 @@ class TadoACClimate(ClimateEntity):
                         self._attr_swing_mode = "off"
                     
                     # HVAC action - based on acPower.value ('ON'/'OFF')
-                    # v1.9.7: Use helper method for hvac_action calculation
+                    # v1.10.0: Use helper method for hvac_action calculation
                     ac_power_on = (ac_power_value == 'ON')
                     api_hvac_action = self._calculate_hvac_action(hvac_mode=self._attr_hvac_mode, ac_power_on=ac_power_on)
                     
-                    # v1.9.7: Explicit optimistic state handling for AC
-                    # Preserve optimistic state if API hasn't confirmed our expected mode yet
+                    # v1.10.0: Sequence-based optimistic state handling (Issue #44 fix)
+                    # Preserve optimistic state if we have an active optimistic sequence
+                    # and API hasn't confirmed our expected state yet
                     should_preserve = False
                     
-                    if self._is_within_optimistic_window() and self._optimistic_hvac_mode is not None:
-                        # Check if API has confirmed our expected mode
-                        if self._attr_hvac_mode == self._optimistic_hvac_mode:
-                            # API confirmed our expected mode - clear optimistic state
-                            _LOGGER.debug(f"AC {self._zone_name}: API confirmed optimistic mode={self._attr_hvac_mode}, clearing optimistic state")
+                    if self._optimistic_sequence is not None:
+                        # Check if API has confirmed our expected mode and action
+                        if self._attr_hvac_mode == self._expected_hvac_mode and api_hvac_action == self._expected_hvac_action:
+                            # API confirmed our expected state - clear optimistic state
+                            _LOGGER.debug(f"AC {self._zone_name}: API confirmed optimistic state (mode={self._attr_hvac_mode}, action={api_hvac_action}), clearing")
                             self._clear_optimistic_state()
                         else:
-                            # API hasn't caught up yet - PRESERVE optimistic state for ALL modes
-                            # This fixes the flickering issue
+                            # API hasn't caught up yet - PRESERVE optimistic state
                             should_preserve = True
-                            _LOGGER.debug(f"AC {self._zone_name}: Preserving optimistic state (expected={self._optimistic_hvac_mode}, API shows={self._attr_hvac_mode})")
-                    elif self._optimistic_set_at is not None:
-                        # Window expired - clear optimistic state
-                        _LOGGER.debug(f"AC {self._zone_name}: Optimistic window expired, clearing state")
-                        self._clear_optimistic_state()
+                            _LOGGER.debug(
+                                f"AC {self._zone_name}: Preserving optimistic state "
+                                f"(expected mode={self._expected_hvac_mode}, action={self._expected_hvac_action}; "
+                                f"API shows mode={self._attr_hvac_mode}, action={api_hvac_action})"
+                            )
                     
                     # Apply state based on preservation decision
                     if should_preserve:
                         # Keep optimistic mode and action until API confirms
-                        self._attr_hvac_mode = self._optimistic_hvac_mode
-                        self._attr_hvac_action = self._optimistic_hvac_action
+                        self._attr_hvac_mode = self._expected_hvac_mode
+                        self._attr_hvac_action = self._expected_hvac_action
                         _LOGGER.debug(f"AC {self._zone_name}: Using optimistic state: mode={self._attr_hvac_mode}, action={self._attr_hvac_action}")
                     else:
                         self._attr_hvac_action = api_hvac_action
                 else:
                     # Power is OFF - keep last temperature for reference
-                    # v1.9.7: Explicit optimistic state handling for AC OFF
-                    if self._is_within_optimistic_window() and self._optimistic_hvac_mode is not None:
-                        if self._optimistic_hvac_mode == HVACMode.OFF:
+                    # v1.10.0: Sequence-based optimistic state handling for AC OFF (Issue #44 fix)
+                    if self._optimistic_sequence is not None:
+                        if self._expected_hvac_mode == HVACMode.OFF:
                             # We expected OFF and API confirms OFF - clear optimistic state
                             _LOGGER.debug(f"AC {self._zone_name}: API confirmed OFF mode, clearing optimistic state")
                             self._clear_optimistic_state()
@@ -1236,13 +1248,11 @@ class TadoACClimate(ClimateEntity):
                         else:
                             # We expected a different mode but API shows OFF
                             # PRESERVE optimistic state - API hasn't caught up yet
-                            _LOGGER.debug(f"AC {self._zone_name}: Preserving optimistic state (expected={self._optimistic_hvac_mode}, API shows OFF)")
-                            self._attr_hvac_mode = self._optimistic_hvac_mode
-                            self._attr_hvac_action = self._optimistic_hvac_action
+                            _LOGGER.debug(f"AC {self._zone_name}: Preserving optimistic state (expected={self._expected_hvac_mode}, API shows OFF)")
+                            self._attr_hvac_mode = self._expected_hvac_mode
+                            self._attr_hvac_action = self._expected_hvac_action
                     else:
-                        # No optimistic state or window expired - trust API
-                        if self._optimistic_set_at is not None:
-                            self._clear_optimistic_state()
+                        # No optimistic state - trust API
                         self._attr_hvac_mode = HVACMode.OFF
                         self._attr_hvac_action = HVACAction.OFF
                 
@@ -1302,14 +1312,14 @@ class TadoACClimate(ClimateEntity):
         if old_mode == HVACMode.OFF:
             self._attr_hvac_mode = hvac_mode if hvac_mode else HVACMode.COOL
         
-        # v1.9.7: Use helper method for hvac_action calculation
+        # v1.10.0: Use helper method for hvac_action calculation
         new_hvac_action = self._calculate_hvac_action()
         self._attr_hvac_action = new_hvac_action
         
         self._overlay_type = "MANUAL"
-        # v1.9.7: Use explicit optimistic state tracking
-        self._set_optimistic_state(self._attr_hvac_mode, new_hvac_action)
-        _LOGGER.debug(f"AC Optimistic update: {self._zone_name} target_temp={temperature}")
+        # v1.10.0: Use new optimistic state tracking with sequence numbers (Issue #44 fix)
+        self._set_optimistic_state(self._attr_hvac_mode, new_hvac_action, target_temp=temperature)
+        _LOGGER.debug(f"AC Optimistic update: {self._zone_name} target_temp={temperature}, hvac_action={new_hvac_action}")
         self.async_write_ha_state()
         
         # v1.9.2: Await API call with timeout (fixes #44)
@@ -1348,7 +1358,7 @@ class TadoACClimate(ClimateEntity):
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_hvac_action = HVACAction.OFF
             self._overlay_type = "MANUAL"
-            # v1.9.7: Use explicit optimistic state tracking
+            # v1.10.0: Use new optimistic state tracking with sequence numbers (Issue #44 fix)
             self._set_optimistic_state(HVACMode.OFF, HVACAction.OFF)
             self.async_write_ha_state()
             
@@ -1388,7 +1398,7 @@ class TadoACClimate(ClimateEntity):
             # v1.9.7: Set hvac_action to IDLE when switching to AUTO
             # The actual state will be updated when zones.json is refreshed.
             self._attr_hvac_action = HVACAction.IDLE
-            # v1.9.7: Use explicit optimistic state tracking
+            # v1.10.0: Use new optimistic state tracking with sequence numbers (Issue #44 fix)
             self._set_optimistic_state(HVACMode.AUTO, HVACAction.IDLE)
             self.async_write_ha_state()
             
@@ -1442,11 +1452,11 @@ class TadoACClimate(ClimateEntity):
             if not self._attr_fan_mode:
                 self._attr_fan_mode = "auto"
             
-            # v1.9.7: Use helper method for hvac_action calculation
+            # v1.10.0: Use helper method for hvac_action calculation
             new_hvac_action = self._calculate_hvac_action()
             self._attr_hvac_action = new_hvac_action
             
-            # v1.9.7: Use explicit optimistic state tracking
+            # v1.10.0: Use new optimistic state tracking with sequence numbers (Issue #44 fix)
             self._set_optimistic_state(hvac_mode, new_hvac_action)
             self.async_write_ha_state()
             
@@ -1490,11 +1500,11 @@ class TadoACClimate(ClimateEntity):
             self._attr_hvac_mode = HVACMode.COOL  # Default mode when turning on via fan
             self._overlay_type = "MANUAL"
         
-        # v1.9.7: Use helper method for hvac_action calculation
+        # v1.10.0: Use helper method for hvac_action calculation
         new_hvac_action = self._calculate_hvac_action()
         self._attr_hvac_action = new_hvac_action
         
-        # v1.9.7: Use explicit optimistic state tracking
+        # v1.10.0: Use new optimistic state tracking with sequence numbers (Issue #44 fix)
         self._set_optimistic_state(self._attr_hvac_mode, new_hvac_action)
         self.async_write_ha_state()
         
@@ -1558,11 +1568,11 @@ class TadoACClimate(ClimateEntity):
             self._attr_hvac_mode = HVACMode.COOL  # Default mode when turning on via swing
             self._overlay_type = "MANUAL"
         
-        # v1.9.7: Use helper method for hvac_action calculation
+        # v1.10.0: Use helper method for hvac_action calculation
         new_hvac_action = self._calculate_hvac_action()
         self._attr_hvac_action = new_hvac_action
         
-        # v1.9.7: Use explicit optimistic state tracking
+        # v1.10.0: Use new optimistic state tracking with sequence numbers (Issue #44 fix)
         self._set_optimistic_state(self._attr_hvac_mode, new_hvac_action)
         self.async_write_ha_state()
         

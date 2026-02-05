@@ -53,22 +53,22 @@ This implementation plan addresses Issue #44 - the coordinator race condition th
     - **Property 4: API Failure Rollback**
     - **Validates: Requirements 1.4**
 
-- [ ] 3. Replicate all changes to TadoACClimate (AC parity)
-  - [ ] 3.1 Add same optimistic state attributes to TadoACClimate
+- [-] 3. Replicate all changes to TadoACClimate (AC parity)
+  - [x] 3.1 Add same optimistic state attributes to TadoACClimate
     - Copy all attributes from TadoClimate
     - _Requirements: 7.1, 7.3_
   
-  - [ ] 3.2 Modify async_set_temperature in TadoACClimate
+  - [x] 3.2 Modify async_set_temperature in TadoACClimate
     - Use COOLING instead of HEATING for expected action
     - Same sequence and freshness logic
     - _Requirements: 7.1_
   
-  - [ ] 3.3 Modify async_set_hvac_mode in TadoACClimate
+  - [x] 3.3 Modify async_set_hvac_mode in TadoACClimate
     - Handle AC-specific modes (COOL, FAN_ONLY, DRY)
     - Same optimistic update pattern
     - _Requirements: 7.1_
   
-  - [ ] 3.4 Implement coordinator_update in TadoACClimate
+  - [x] 3.4 Implement coordinator_update in TadoACClimate
     - Identical logic to TadoClimate
     - _Requirements: 7.1, 7.3_
   
