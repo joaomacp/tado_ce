@@ -427,9 +427,16 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
             # Flatten smart_comfort_settings section
             if 'smart_comfort_settings' in user_input:
                 smart_comfort = user_input['smart_comfort_settings']
-                for key in ['outdoor_temp_entity', 'smart_comfort_mode', 'use_feels_like', 'smart_comfort_history_days']:
+                for key in ['outdoor_temp_entity', 'smart_comfort_mode', 'use_feels_like', 'smart_comfort_history_days', 'mold_risk_window_type']:
                     if key in smart_comfort:
                         processed_input[key] = smart_comfort[key]
+            
+            # Flatten heating_cycle_settings section (v1.12.0)
+            if 'heating_cycle_settings' in user_input:
+                heating_cycle = user_input['heating_cycle_settings']
+                for key in ['heating_cycle_history_days', 'heating_cycle_min_cycles', 'heating_cycle_inertia_threshold']:
+                    if key in heating_cycle:
+                        processed_input[key] = heating_cycle[key]
             
             # Handle custom day interval
             day_interval_str = processed_input.get('custom_day_interval', '')
@@ -528,6 +535,29 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('use_feels_like', default=options.get('use_feels_like', False)): BooleanSelector(),
                         vol.Optional('smart_comfort_history_days', default=options.get('smart_comfort_history_days', 7)): NumberSelector(
                             NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
+                        ),
+                        vol.Optional('mold_risk_window_type', default=options.get('mold_risk_window_type', 'double_pane')): SelectSelector(
+                            SelectSelectorConfig(
+                                options=["single_pane", "double_pane", "triple_pane", "passive_house"],
+                                translation_key="mold_risk_window_type",
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
+                    }),
+                    {"collapsed": True},
+                ),
+                
+                # === Heating Cycle Settings (v1.12.0, collapsed) ===
+                vol.Required("heating_cycle_settings"): data_entry_flow.section(
+                    vol.Schema({
+                        vol.Optional('heating_cycle_history_days', default=options.get('heating_cycle_history_days', 7)): NumberSelector(
+                            NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
+                        ),
+                        vol.Optional('heating_cycle_min_cycles', default=options.get('heating_cycle_min_cycles', 3)): NumberSelector(
+                            NumberSelectorConfig(min=1, max=10, step=1, mode=NumberSelectorMode.BOX)
+                        ),
+                        vol.Optional('heating_cycle_inertia_threshold', default=options.get('heating_cycle_inertia_threshold', 0.1)): NumberSelector(
+                            NumberSelectorConfig(min=0.05, max=0.5, step=0.05, mode=NumberSelectorMode.BOX, unit_of_measurement="°C")
                         ),
                     }),
                     {"collapsed": True},

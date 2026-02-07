@@ -35,6 +35,7 @@ DEFAULT_OUTDOOR_TEMP_ENTITY = ""  # v1.9.0: Outdoor temperature entity for weath
 DEFAULT_WEATHER_COMPENSATION = "none"  # v1.9.0: Weather compensation preset
 DEFAULT_USE_FEELS_LIKE = False  # v1.9.0: Use feels-like temperature instead of actual
 DEFAULT_SMART_COMFORT_HISTORY_DAYS = 7  # v1.9.1: Days of temperature history to keep for rate calculation
+DEFAULT_MOLD_RISK_WINDOW_TYPE = "double_pane"  # v1.11.0: Window type for mold risk surface temperature calculation
 
 # WEATHER_COMPENSATION_PRESETS moved to const.py (v1.9.0)
 
@@ -465,6 +466,25 @@ class ConfigurationManager:
         if isinstance(days, int) and MIN_SMART_COMFORT_HISTORY_DAYS <= days <= MAX_SMART_COMFORT_HISTORY_DAYS:
             return days
         return DEFAULT_SMART_COMFORT_HISTORY_DAYS
+    
+    def get_mold_risk_window_type(self) -> str:
+        """Get the window type for mold risk surface temperature calculation.
+        
+        v1.11.0: Window U-value affects surface temperature calculation.
+        Used with outdoor temperature to estimate cold spot temperature.
+        
+        Returns:
+            Window type: 'single_pane', 'double_pane', 'triple_pane', or 'passive_house'
+        """
+        window_type = self._options.get('mold_risk_window_type', DEFAULT_MOLD_RISK_WINDOW_TYPE)
+        
+        # Validate against known window types
+        from .const import WINDOW_U_VALUES
+        if window_type not in WINDOW_U_VALUES:
+            _LOGGER.warning(f"Invalid mold_risk_window_type: {window_type}, using default {DEFAULT_MOLD_RISK_WINDOW_TYPE}")
+            return DEFAULT_MOLD_RISK_WINDOW_TYPE
+        
+        return window_type
     
     def sync_all_to_config_json(self) -> None:
         """Sync all configuration values to config.json for tado_api.py to read.

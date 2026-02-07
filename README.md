@@ -6,7 +6,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.1.3-blue?style=for-the-badge&logo=home-assistant) ![Tado](https://img.shields.io/badge/Tado-V2%2FV3%2FV3%2B-orange?style=for-the-badge) ![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)
 
 <!-- Status Badges -->
-![Version](https://img.shields.io/badge/Version-1.10.0-purple?style=for-the-badge) ![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge) ![Maintained](https://img.shields.io/badge/Maintained-Yes-green.svg?style=for-the-badge) ![Tests](https://img.shields.io/badge/Tests-716%20Passing-success?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-1.11.0-purple?style=for-the-badge) ![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge) ![Maintained](https://img.shields.io/badge/Maintained-Yes-green.svg?style=for-the-badge) ![Tests](https://img.shields.io/badge/Tests-716%20Passing-success?style=for-the-badge)
 
 <!-- Community Badges -->
 ![GitHub stars](https://img.shields.io/github/stars/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub forks](https://img.shields.io/github/forks/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub issues](https://img.shields.io/github/issues/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub last commit](https://img.shields.io/github/last-commit/hiall-fyi/tado_ce?style=for-the-badge&logo=github)
@@ -93,6 +93,10 @@ Full climate, AC, and hot water control with timer support, geofencing, presence
 | **Smart Comfort** | Analytics | Heating/cooling rates, time-to-target, efficiency (opt-in) |
 | | Preheat Advisor | Suggest optimal preheat start time based on historical patterns |
 | | Schedule Sensors | Next schedule time and temperature per zone |
+| **Heating Cycle** | Thermal Inertia | Automatically measures delay before temperature rises (always enabled) |
+| | Heating Rate Analysis | Calculates °C/min heating rate from historical cycles |
+| | Preheat Estimates | Predicts time to reach target based on current temperature |
+| | Confidence Scoring | Reliability indicator (0-100%) based on data quality |
 | **Environment** | Mold Risk | Per-zone mold risk indicator (always enabled) |
 | | Comfort Level | Adaptive comfort sensor using ASHRAE 55 model (always enabled) |
 | **Enhanced Controls** | Immediate Refresh | Dashboard updates immediately after user actions |
@@ -365,7 +369,7 @@ Contributions welcome!
 
 ---
 
-**Version**: 1.10.0 | **Last Updated**: 2026-02-05 | **Tested On**: Home Assistant 2026.1.3
+**Version**: 1.10.0 | **Last Updated**: TBD | **Tested On**: Home Assistant 2026.1.3
 
 ---
 

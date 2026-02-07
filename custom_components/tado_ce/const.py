@@ -219,3 +219,19 @@ SMART_COMFORT_PRESETS = {
         "preheat_warm_factor": 0.8,
     },
 }
+
+# v1.11.0: Adaptive Smart Polling Constants
+MIN_POLLING_INTERVAL = 5        # minutes (prevent excessive polling for high quotas)
+MAX_POLLING_INTERVAL = 120      # minutes (ensure reasonable updates even with low quota)
+POLLING_SAFETY_BUFFER = 0.90    # Reserve 10% quota for manual calls and unexpected usage
+
+# v1.11.0: Mold Risk Enhancement - Window U-values (W/m²K)
+# Standard thermal transmittance values for different window types
+WINDOW_U_VALUES = {
+    "single_pane": 5.0,      # Single glazing (old buildings)
+    "double_pane": 2.7,      # Double glazing (most common, default)
+    "triple_pane": 1.0,      # Triple glazing (modern buildings)
+    "passive_house": 0.8,    # Passive house standard (high performance)
+}
+DEFAULT_WINDOW_TYPE = "double_pane"
+INTERIOR_SURFACE_HEAT_TRANSFER_COEFFICIENT = 8.0  # W/m²K (standard value for indoor surfaces)

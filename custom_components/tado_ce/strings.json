@@ -1,4 +1,49 @@
 {
+  "entity": {
+    "sensor": {
+      "mold_risk": {
+        "state": {
+          "critical": "Critical",
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low"
+        },
+        "state_attributes": {
+          "room_temperature": {
+            "name": "Room temperature"
+          },
+          "effective_temperature": {
+            "name": "Effective temperature"
+          },
+          "humidity": {
+            "name": "Humidity"
+          },
+          "dew_point": {
+            "name": "Dew point"
+          },
+          "margin": {
+            "name": "Margin"
+          },
+          "temperature_source": {
+            "name": "Temperature source",
+            "state": {
+              "surface_estimation": "Surface estimation",
+              "room_average": "Room average"
+            }
+          },
+          "outdoor_temperature": {
+            "name": "Outdoor temperature"
+          },
+          "surface_temperature": {
+            "name": "Surface temperature"
+          },
+          "zone_type": {
+            "name": "Zone type"
+          }
+        }
+      }
+    }
+  },
   "selector": {
     "smart_comfort_mode": {
       "options": {
@@ -6,6 +51,14 @@
         "light": "Light",
         "moderate": "Moderate",
         "aggressive": "Aggressive"
+      }
+    },
+    "mold_risk_window_type": {
+      "options": {
+        "single_pane": "Single Pane (U=5.0)",
+        "double_pane": "Double Pane (U=2.7)",
+        "triple_pane": "Triple Pane (U=1.0)",
+        "passive_house": "Passive House (U=0.8)"
       }
     }
   },
@@ -110,13 +163,28 @@
               "outdoor_temp_entity": "Outdoor Temperature Entity",
               "smart_comfort_mode": "Smart Comfort Mode",
               "use_feels_like": "Use Feels-Like Temperature",
-              "smart_comfort_history_days": "Temperature History (days)"
+              "smart_comfort_history_days": "Temperature History (days)",
+              "mold_risk_window_type": "Mold Risk Window Type"
             },
             "data_description": {
               "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home, sensor.outdoor_temperature)",
               "smart_comfort_mode": "Adjusts target temperature based on outdoor temp and humidity",
               "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature for weather compensation",
-              "smart_comfort_history_days": "Days of temperature history to keep for rate calculation (1-30, default: 7). More days = more accurate rates but larger cache file"
+              "smart_comfort_history_days": "Days of temperature history to keep for rate calculation (1-30, default: 7). More days = more accurate rates but larger cache file",
+              "mold_risk_window_type": "Window type for mold risk surface temperature calculation. Used with outdoor temperature to estimate cold spot temperature at window edges."
+            }
+          },
+          "heating_cycle_settings": {
+            "name": "Heating Cycle Analytics",
+            "data": {
+              "heating_cycle_history_days": "Cycle History (days)",
+              "heating_cycle_min_cycles": "Minimum Cycles for Analysis",
+              "heating_cycle_inertia_threshold": "Inertia Detection Threshold"
+            },
+            "data_description": {
+              "heating_cycle_history_days": "Days of heating cycle history to keep (1-30, default: 7)",
+              "heating_cycle_min_cycles": "Minimum completed cycles required before showing analytics (1-10, default: 3)",
+              "heating_cycle_inertia_threshold": "Temperature change threshold to detect inertia end (0.05-0.5°C, default: 0.1)"
             }
           },
           "experimental": {
@@ -150,7 +218,8 @@
           "outdoor_temp_entity": "Outdoor Temperature Entity",
           "smart_comfort_mode": "Smart Comfort Mode",
           "use_feels_like": "Use Feels-Like Temperature",
-          "smart_comfort_history_days": "Temperature History (days)"
+          "smart_comfort_history_days": "Temperature History (days)",
+          "mold_risk_window_type": "Mold Risk Window Type"
         },
         "data_description": {
           "weather_enabled": "Get outside temperature and solar intensity (+1 API call per quick sync)",
@@ -170,7 +239,8 @@
           "outdoor_temp_entity": "Select a temperature sensor for Smart Comfort (e.g., weather.home, sensor.outdoor_temperature)",
           "smart_comfort_mode": "Comprehensive comfort optimization: adjusts target temperature based on outdoor temp and humidity. Light: subtle, Moderate: balanced, Aggressive: strong (may turn off heating when warm)",
           "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature for Smart Comfort calculations",
-          "smart_comfort_history_days": "Days of temperature history to keep for rate calculation (1-30, default: 7). More days = more accurate rates but larger cache file"
+          "smart_comfort_history_days": "Days of temperature history to keep for rate calculation (1-30, default: 7). More days = more accurate rates but larger cache file",
+          "mold_risk_window_type": "Window type for mold risk surface temperature calculation. Used with outdoor temperature to estimate cold spot temperature at window edges."
         }
       }
     },

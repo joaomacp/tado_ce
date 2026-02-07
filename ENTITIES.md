@@ -7,6 +7,8 @@ Complete list of all entities created by Tado CE integration.
 ### Environment Sensors (Always Enabled)
 New sensors automatically created for all HEATING and AIR_CONDITIONING zones:
 - **Mold Risk Sensor** (`sensor.{zone}_mold_risk`): Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
+  - **Attributes**: `temperature`, `humidity`, `dew_point`, `temperature_source` (room/surface), `outdoor_temperature`, `surface_temperature`
+  - **v1.11.0**: Enhanced with 2-tier temperature calculation - uses outdoor temp + window U-value to estimate cold spot temperature at window edges (Tier 1), or falls back to room temperature (Tier 2)
 - **Comfort Level Sensor** (`sensor.{zone}_comfort_level`): Adaptive comfort level (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix)
 
 ### Smart Comfort Analytics (Opt-in)
@@ -211,6 +213,23 @@ For each zone, you get these sensors:
 | `sensor.{zone}_mode` | State | Mode (Manual/Schedule/Off) |
 | `sensor.{zone}_battery` | State | Battery status (NORMAL/LOW) |
 | `sensor.{zone}_connection` | State | Connection (Online/Offline) |
+
+### v1.12.0: Heating Cycle Analysis Sensors (HEATING zones only)
+
+Automatically created for all HEATING zones to provide improved preheat timing estimates:
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `sensor.{zone}_inertia_time` | Time (minutes) | Thermal inertia time - delay before temperature starts rising after heating starts |
+| `sensor.{zone}_heating_rate` | Rate (°C/min) | Linear heating rate during active heating |
+| `sensor.{zone}_preheat_estimate` | Time (minutes) | Estimated time to reach target temperature from current temperature |
+| `sensor.{zone}_confidence_score` | Percentage | Confidence score (0-100%) indicating reliability of estimates |
+
+**How it works:**
+- Automatically tracks heating cycles (when setpoint increases and heating activates)
+- Analyzes completed cycles to calculate thermal inertia and heating rate
+- Provides preheat time estimates based on historical data
+- Confidence score increases as more cycles are collected (minimum 3 cycles recommended)
 
 **Note:** Entity naming changed in v1.2.0 - no "tado_ce_" prefix for zone entities.
 

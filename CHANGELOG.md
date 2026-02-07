@@ -2,6 +2,36 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [1.11.0] - TBD
+
+**Smart Polling & Environment Sensors** - Adaptive polling calculation and enhanced mold risk assessment.
+
+### Features
+- **Adaptive Smart Polling** - Real-time polling interval calculation based on remaining API quota ([#89](https://github.com/hiall-fyi/tado_ce/issues/89) - @ChrisMarriott38)
+  - Pure adaptive algorithm: distributes remaining calls evenly across remaining time until reset
+  - Universal quota support: works with any API tier (100, 200, 500, 5000, 20000+)
+  - Self-healing: automatically adjusts if usage spikes or quota changes
+  - Safety buffer: 10% reserve to prevent rate limiting
+  - MIN_INTERVAL: 5 minutes (prevents excessive polling for high quotas)
+  - MAX_INTERVAL: 120 minutes (ensures reasonable update frequency)
+  - Test Mode support: correctly applies 100-call limit when Test Mode enabled
+  - Removes hardcoded `POLLING_INTERVALS` lookup table
+- **Enhanced Mold Risk Assessment** - 2-tier temperature calculation for accurate cold spot detection ([#90](https://github.com/hiall-fyi/tado_ce/issues/90) - @ChrisMarriott38)
+  - **Tier 1: Surface Temperature Estimation** - Uses outdoor temperature + window U-value to calculate cold spot temperature at window edges
+  - **Tier 2: Room Temperature** - Falls back to room average temperature if outdoor temp not available
+  - Window type configuration: Single Pane (U=5.0), Double Pane (U=2.7), Triple Pane (U=1.0), Passive House (U=0.8)
+  - New sensor attributes: `temperature_source` (room/surface), `outdoor_temperature`, `surface_temperature`
+  - Reuses `outdoor_temp_entity` from Smart Comfort Settings (no duplicate config)
+  - Industry-standard calculation: `T_surface = T_indoor - (T_indoor - T_outdoor) × U / (U + 8)`
+
+### Configuration
+- **Smart Comfort Settings** - Added `mold_risk_window_type` option (default: Double Pane)
+  - Shared `outdoor_temp_entity` for both Comfort Level and Mold Risk sensors
+  - Window type selector: single_pane, double_pane, triple_pane, passive_house
+
+### Contributors
+Thanks to [@ChrisMarriott38](https://github.com/ChrisMarriott38) for professional testing, detailed validation, and confirming the adaptive polling approach works perfectly with 100-call limit!
+
 ## [1.10.0] - 2026-02-05
 
 **Coordinator Race Condition Fix** - Complete architectural fix for climate entity flickering and state sync issues.

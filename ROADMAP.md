@@ -6,6 +6,30 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## v1.11.0 - Smart Polling & Environment Sensors
+
+Adaptive polling and enhanced mold risk assessment.
+
+### ✅ Completed for v1.11.0
+
+**Adaptive Smart Polling** ([#89](https://github.com/hiall-fyi/tado_ce/issues/89)):
+- [x] **Real-time adaptive intervals** - Calculate polling based on remaining quota and time
+- [x] **Universal quota support** - Works for any tier (100, 200, 500, 5000, 20000+)
+- [x] **Self-healing behavior** - Automatically adapts to manual calls and HA restarts
+- [x] **Transparent logging** - Full visibility into interval calculations
+
+**Note**: Originally planned for v2.0.0, but accelerated to v1.11.0 based on user validation.
+
+**Enhanced Mold Risk Assessment** ([#90](https://github.com/hiall-fyi/tado_ce/issues/90)):
+- [x] **U-value estimation** - Calculate window surface temperature from outdoor temp and window type
+- [x] **2-tier fallback strategy** - Automatic fallback: U-value estimation → room temperature
+- [x] **Configurable window types** - Single/double/triple pane with standard U-values
+- [x] **ASHRAE 160 compliance** - Surface temperature-based mold risk assessment
+
+**Note**: Industry-standard approach using surface temperature instead of room average. External sensor support not implemented due to complexity and limited use case.
+
+---
+
 ## v2.0.0 - Multiple Homes Enabled
 
 Major release enabling full multi-home support.

@@ -3,11 +3,17 @@ import json
 import logging
 from datetime import timedelta
 
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorDeviceClass,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.const import UnitOfTemperature, PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, ZONES_FILE, ZONES_INFO_FILE, RATELIMIT_FILE, WEATHER_FILE, MOBILE_DEVICES_FILE, API_CALL_HISTORY_FILE, DEFAULT_ZONE_NAMES, CONFIG_FILE, DATA_DIR, TADO_AUTH_URL, CLIENT_ID
 from .device_manager import get_hub_device_info, get_zone_device_info
@@ -139,6 +145,15 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoMoldRiskSensor(zone_id, zone_name, zone_type),
                         TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                     ])
+                    # v1.11.0: Heating Cycle Analysis sensors (always enabled for HEATING zones)
+                    heating_cycle_coordinator = hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
+                    if heating_cycle_coordinator:
+                        sensors.extend([
+                            TadoInertiaTimeSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                            TadoHeatingRateAnalysisSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                            TadoPreheatEstimateSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                            TadoConfidenceScoreSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                        ])
                     # v1.9.0: Smart Comfort sensors (opt-in)
                     if config_manager.get_smart_comfort_enabled():
                         # Heating/Cooling Rate - useful for all zones with temperature sensor
@@ -155,6 +170,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         # Time to Target - only for zones with TRV (heating control)
                         if zone_id in zones_with_trv:
                             sensors.append(TadoTimeToTargetSensor(zone_id, zone_name, zone_type))
+                    
                 elif zone_type == 'AIR_CONDITIONING':
                     sensors.extend([
                         TadoTemperatureSensor(zone_id, zone_name, zone_type),
@@ -2193,11 +2209,53 @@ def _calculate_dew_point(temperature: float, humidity: float) -> float:
     return round(dew_point, 1)
 
 
+def _calculate_surface_temperature(indoor_temp: float, outdoor_temp: float, u_value: float) -> float:
+    """Calculate window surface temperature using heat transfer physics.
+    
+    v1.11.0: Used for mold risk assessment with U-value estimation.
+    
+    Formula: T_surface = T_indoor - (T_indoor - T_outdoor) × U / (U + h)
+    where:
+        U = window U-value (thermal transmittance, W/m²K)
+        h = interior surface heat transfer coefficient = 8 W/m²K
+    
+    This formula accounts for:
+    - Window insulation properties (U-value)
+    - Indoor/outdoor temperature difference
+    - Interior surface heat transfer
+    
+    Args:
+        indoor_temp: Indoor temperature in °C
+        outdoor_temp: Outdoor temperature in °C
+        u_value: Window U-value in W/m²K
+        
+    Returns:
+        Estimated surface temperature in °C
+        
+    References:
+        - ASHRAE 160 standard for surface temperature assessment
+        - Window condensation risk calculators
+    """
+    from .const import INTERIOR_SURFACE_HEAT_TRANSFER_COEFFICIENT
+    
+    h = INTERIOR_SURFACE_HEAT_TRANSFER_COEFFICIENT
+    
+    # Calculate surface temperature
+    temp_diff = indoor_temp - outdoor_temp
+    surface_temp = indoor_temp - (temp_diff * u_value / (u_value + h))
+    
+    return round(surface_temp, 1)
+
+
 class TadoMoldRiskSensor(TadoBaseSensor):
     """Mold risk indicator sensor.
     
+    v1.11.0: Enhanced with 2-tier temperature source strategy:
+    - Tier 1: U-value surface temperature estimation (if outdoor temp available)
+    - Tier 2: Room average temperature (fallback)
+    
     Calculates dew point from temperature and humidity using Magnus-Tetens formula,
-    then assesses mold risk based on the margin between indoor temp and dew point.
+    then assesses mold risk based on the margin between temperature and dew point.
     
     Risk Levels (based on condensation margin):
     - Critical: <3°C margin (high mold risk, condensation likely)
@@ -2213,20 +2271,30 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         self._attr_name = f"{zone_name} Mold Risk"
         self._attr_unique_id = f"tado_ce_zone_{zone_id}_mold_risk"
         self._attr_icon = "mdi:mushroom"
+        self._attr_translation_key = "mold_risk"  # v1.11.0: Enable translations
         
         # Attributes
-        self._temperature: float | None = None
+        self._room_temp: float | None = None  # v1.11.0: Room temp from Tado sensor
+        self._effective_temp: float | None = None  # v1.11.0: Effective temp used for calculation
         self._humidity: float | None = None
         self._dew_point: float | None = None
         self._margin: float | None = None
+        self._temperature_source: str = "unknown"  # v1.11.0: Track which tier is active
+        self._outdoor_temp: float | None = None  # v1.11.0: For surface temp calculation
+        self._surface_temp: float | None = None  # v1.11.0: Calculated surface temp
     
     @property
     def extra_state_attributes(self):
         return {
-            "temperature": self._temperature,
+            "room_temperature": self._room_temp,  # v1.11.0: Always show room temp
+            "effective_temperature": self._effective_temp,  # v1.11.0: Temp used for calculation
             "humidity": self._humidity,
             "dew_point": self._dew_point,
             "margin": self._margin,
+            "mold_risk_percentage": self._calculate_surface_rh(),  # v1.11.0: RH at surface (mold risk %)
+            "temperature_source": self._temperature_source,  # v1.11.0
+            "outdoor_temperature": self._outdoor_temp,  # v1.11.0
+            "surface_temperature": self._surface_temp,  # v1.11.0
             "zone_type": self._zone_type,
         }
     
@@ -2242,27 +2310,39 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         return "mdi:check-circle"
     
     def update(self):
-        """Update mold risk based on temperature and humidity."""
+        """Update mold risk based on temperature and humidity.
+        
+        v1.11.0: Uses 2-tier temperature source strategy for more accurate assessment.
+        """
         try:
             zone_data = self._get_zone_data()
             if not zone_data:
                 self._attr_available = False
                 return
             
-            # Get temperature and humidity
+            # Get humidity from zone data
             sensor_data = zone_data.get('sensorDataPoints') or {}
-            self._temperature = (sensor_data.get('insideTemperature') or {}).get('celsius')
             self._humidity = (sensor_data.get('humidity') or {}).get('percentage')
             
-            if self._temperature is None or self._humidity is None:
+            if self._humidity is None:
                 self._attr_available = False
                 return
             
-            # Calculate dew point using Magnus-Tetens formula
-            self._dew_point = _calculate_dew_point(self._temperature, self._humidity)
+            # Get room temperature (always needed as fallback)
+            room_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            if room_temp is None:
+                self._attr_available = False
+                return
             
-            # Calculate margin (difference between indoor temp and dew point)
-            self._margin = round(self._temperature - self._dew_point, 1)
+            # v1.11.0: Store room temp and determine effective temp (Tier 1 or Tier 2)
+            self._room_temp = room_temp
+            self._effective_temp = self._get_effective_temperature(room_temp)
+            
+            # Calculate dew point using Magnus-Tetens formula (using effective temp)
+            self._dew_point = _calculate_dew_point(self._effective_temp, self._humidity)
+            
+            # Calculate margin (difference between effective temperature and dew point)
+            self._margin = round(self._effective_temp - self._dew_point, 1)
             
             # Determine risk level
             if self._margin < 3:
@@ -2279,6 +2359,157 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         except Exception as e:
             _LOGGER.debug(f"Failed to update mold risk for zone {self._zone_id}: {e}")
             self._attr_available = False
+    
+    def _get_effective_temperature(self, room_temp: float) -> float:
+        """Get effective temperature for mold risk calculation.
+        
+        v1.11.0: 2-tier strategy:
+        - Tier 1: Surface temperature estimation (if outdoor temp + window type available)
+        - Tier 2: Room average temperature (fallback)
+        
+        Args:
+            room_temp: Room average temperature from Tado sensor
+            
+        Returns:
+            Effective temperature for mold risk calculation
+        """
+        from .config_manager import ConfigurationManager
+        from .const import WINDOW_U_VALUES, DEFAULT_WINDOW_TYPE
+        
+        try:
+            # Get config manager
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            if not entries:
+                self._temperature_source = "room_average"
+                return room_temp
+            
+            config_manager = ConfigurationManager(entries[0])
+            
+            # Try Tier 1: Surface temperature estimation
+            outdoor_entity = config_manager.get_outdoor_temp_entity()
+            
+            if outdoor_entity:
+                # Get outdoor temperature
+                self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity, config_manager.get_use_feels_like())
+                
+                if self._outdoor_temp is not None:
+                    # Get window type and U-value
+                    window_type = config_manager.get_mold_risk_window_type()
+                    u_value = WINDOW_U_VALUES.get(window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+                    
+                    # Calculate surface temperature
+                    self._surface_temp = _calculate_surface_temperature(room_temp, self._outdoor_temp, u_value)
+                    self._temperature_source = "surface_estimation"
+                    
+                    _LOGGER.debug(
+                        f"Mold Risk (Zone {self._zone_id}): Using surface estimation - "
+                        f"Room: {room_temp}°C, Outdoor: {self._outdoor_temp}°C, "
+                        f"Window: {window_type} (U={u_value}), Surface: {self._surface_temp}°C"
+                    )
+                    
+                    return self._surface_temp
+            
+            # Tier 2: Fallback to room temperature
+            self._temperature_source = "room_average"
+            self._outdoor_temp = None
+            self._surface_temp = None
+            
+            _LOGGER.debug(
+                f"Mold Risk (Zone {self._zone_id}): Using room average - "
+                f"Room: {room_temp}°C (no outdoor temp configured)"
+            )
+            
+            return room_temp
+            
+        except Exception as e:
+            _LOGGER.debug(f"Error determining temperature source for zone {self._zone_id}: {e}")
+            self._temperature_source = "room_average"
+            self._outdoor_temp = None
+            self._surface_temp = None
+            return room_temp
+    
+    def _get_outdoor_temperature(self, entity_id: str, use_feels_like: bool = False) -> float | None:
+        """Get outdoor temperature from configured entity.
+        
+        v1.11.0: Reused from Smart Comfort implementation.
+        
+        Args:
+            entity_id: Entity ID of outdoor temperature sensor or weather entity
+            use_feels_like: Whether to use feels-like temperature
+            
+        Returns:
+            Outdoor temperature in °C, or None if not available
+        """
+        if not self.hass or not entity_id:
+            return None
+        
+        try:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ('unknown', 'unavailable'):
+                return None
+            
+            # Check if it's a weather entity
+            if entity_id.startswith('weather.'):
+                if use_feels_like:
+                    # Try feels-like attributes
+                    temp = state.attributes.get('apparent_temperature')
+                    if temp is None:
+                        temp = state.attributes.get('feels_like')
+                    if temp is None:
+                        temp = state.attributes.get('temperature')
+                else:
+                    temp = state.attributes.get('temperature')
+                
+                if temp is not None:
+                    return float(temp)
+            else:
+                # Regular sensor entity
+                try:
+                    return float(state.state)
+                except (ValueError, TypeError):
+                    return None
+                    
+        except Exception as e:
+            _LOGGER.debug(f"Error getting outdoor temperature from {entity_id}: {e}")
+            return None
+        
+        return None
+    
+    def _calculate_surface_rh(self) -> int | None:
+        """Calculate relative humidity at surface (mold risk percentage).
+        
+        v1.11.0: Provides mold risk as percentage for easier comparison with other sensors.
+        
+        Uses Magnus-Tetens formula to calculate saturation vapor pressure at both
+        dew point and surface temperature, then derives relative humidity at surface.
+        
+        Mold typically grows when surface RH exceeds ~70-80%.
+        
+        Returns:
+            Surface relative humidity as percentage (0-100), or None if data unavailable
+        """
+        if self._effective_temp is None or self._dew_point is None:
+            return None
+        
+        try:
+            import math
+            
+            # Magnus-Tetens formula for saturation vapor pressure
+            # SVP = 6.112 * exp((17.67 * T) / (T + 243.5))
+            def svp(temp: float) -> float:
+                return 6.112 * math.exp((17.67 * temp) / (temp + 243.5))
+            
+            # Relative humidity at surface = (SVP at dew point / SVP at surface temp) * 100
+            # When surface temp = dew point, RH = 100% (condensation occurs)
+            # When surface temp > dew point, RH < 100% (safer)
+            surface_rh = (svp(self._dew_point) / svp(self._effective_temp)) * 100
+            
+            # Clamp to 0-100 range and round to integer
+            return round(min(100, max(0, surface_rh)))
+            
+        except Exception as e:
+            _LOGGER.debug(f"Error calculating surface RH for zone {self._zone_id}: {e}")
+            return None
 
 
 class TadoComfortLevelSensor(TadoBaseSensor):
@@ -2542,3 +2773,211 @@ class TadoComfortLevelSensor(TadoBaseSensor):
         elif self._humidity > 70:
             return " Humid"
         return ""
+
+
+
+# ========== v1.11.0: Heating Cycle Analysis Sensors ==========
+
+class TadoInertiaTimeSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for thermal inertia time (delay before temperature rises)."""
+    
+    def __init__(self, coordinator, zone_id: str, zone_name: str, zone_type: str):
+        """Initialize sensor with coordinator."""
+        super().__init__(coordinator)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._attr_name = f"{zone_name} Inertia Time"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_inertia_time"
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        self._attr_native_unit_of_measurement = "min"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:timer-sand"
+    
+    @property
+    def native_value(self):
+        """Return sensor value from coordinator data."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return None
+        return zone_data.get("inertia_time")
+    
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        return zone_data is not None and zone_data.get("inertia_time") is not None
+    
+    @property
+    def extra_state_attributes(self):
+        """Return additional attributes."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return {}
+        return {
+            "cycle_count": zone_data.get("cycle_count", 0),
+            "completed_count": zone_data.get("completed_count", 0),
+            "confidence_score": zone_data.get("confidence_score", 0.0),
+        }
+
+
+class TadoHeatingRateAnalysisSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for heating rate (°C per minute)."""
+    
+    def __init__(self, coordinator, zone_id: str, zone_name: str, zone_type: str):
+        """Initialize sensor with coordinator."""
+        super().__init__(coordinator)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._attr_name = f"{zone_name} Heating Rate Analysis"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_heating_rate_analysis"
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        self._attr_native_unit_of_measurement = "°C/min"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:trending-up"
+    
+    @property
+    def native_value(self):
+        """Return sensor value from coordinator data."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return None
+        return zone_data.get("heating_rate")
+    
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        return zone_data is not None and zone_data.get("heating_rate") is not None
+    
+    @property
+    def extra_state_attributes(self):
+        """Return additional attributes."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return {}
+        return {
+            "cycle_count": zone_data.get("cycle_count", 0),
+            "completed_count": zone_data.get("completed_count", 0),
+            "confidence_score": zone_data.get("confidence_score", 0.0),
+        }
+
+
+class TadoPreheatEstimateSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for estimated preheat time to reach target temperature."""
+    
+    def __init__(self, coordinator, zone_id: str, zone_name: str, zone_type: str):
+        """Initialize sensor with coordinator."""
+        super().__init__(coordinator)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._attr_name = f"{zone_name} Preheat Estimate"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_preheat_estimate"
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        self._attr_native_unit_of_measurement = "min"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:clock-fast"
+        self._current_temp: Optional[float] = None
+        self._target_temp: Optional[float] = None
+    
+    @property
+    def native_value(self):
+        """Return sensor value from coordinator data."""
+        # Get current and target temps from zone data
+        zone_data = self._get_zone_data()
+        if not zone_data:
+            return None
+        
+        current_temp = zone_data.get("sensorDataPoints", {}).get("insideTemperature", {}).get("celsius")
+        target_temp = zone_data.get("setting", {}).get("temperature", {}).get("celsius")
+        
+        if current_temp is None or target_temp is None:
+            return None
+        
+        # Store for attributes
+        self._current_temp = current_temp
+        self._target_temp = target_temp
+        
+        # Get estimate from coordinator
+        estimate = self.coordinator.estimate_preheat_time(
+            self._zone_id, current_temp, target_temp
+        )
+        return estimate
+    
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        return zone_data is not None and zone_data.get("heating_rate") is not None
+    
+    @property
+    def extra_state_attributes(self):
+        """Return additional attributes."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return {}
+        return {
+            "current_temp": self._current_temp,
+            "target_temp": self._target_temp,
+            "cycle_count": zone_data.get("cycle_count", 0),
+            "completed_count": zone_data.get("completed_count", 0),
+            "confidence_score": zone_data.get("confidence_score", 0.0),
+        }
+    
+    def _get_zone_data(self):
+        """Get zone data from file."""
+        try:
+            with open(ZONES_FILE) as f:
+                data = json.load(f)
+                zone_states = data.get('zoneStates') or {}
+                return zone_states.get(self._zone_id)
+        except Exception:
+            return None
+
+
+class TadoConfidenceScoreSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for confidence score of preheat estimates (0-100%)."""
+    
+    def __init__(self, coordinator, zone_id: str, zone_name: str, zone_type: str):
+        """Initialize sensor with coordinator."""
+        super().__init__(coordinator)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._attr_name = f"{zone_name} Confidence Score"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_confidence_score"
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:chart-line"
+    
+    @property
+    def native_value(self):
+        """Return sensor value from coordinator data."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return None
+        # Convert 0.0-1.0 to 0-100%
+        confidence = zone_data.get("confidence_score")
+        if confidence is not None:
+            return round(confidence * 100, 1)
+        return None
+    
+    @property
+    def available(self) -> bool:
+        """Return if sensor is available."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        return zone_data is not None
+    
+    @property
+    def extra_state_attributes(self):
+        """Return additional attributes."""
+        zone_data = self.coordinator.get_zone_data(self._zone_id)
+        if not zone_data:
+            return {}
+        return {
+            "cycle_count": zone_data.get("cycle_count", 0),
+            "completed_count": zone_data.get("completed_count", 0),
+        }

@@ -14,7 +14,10 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.event import async_track_time_interval
 import homeassistant.helpers.config_validation as cv
 
-from .const import DOMAIN, DATA_DIR, CONFIG_FILE, RATELIMIT_FILE, TADO_API_BASE, TADO_AUTH_URL, CLIENT_ID, API_ENDPOINT_DEVICES
+from .const import (
+    DOMAIN, DATA_DIR, CONFIG_FILE, RATELIMIT_FILE, TADO_API_BASE, TADO_AUTH_URL, CLIENT_ID, API_ENDPOINT_DEVICES,
+    MIN_POLLING_INTERVAL, MAX_POLLING_INTERVAL, POLLING_SAFETY_BUFFER
+)
 from .config_manager import ConfigurationManager
 from .auth_manager import get_auth_manager
 from .async_api import get_async_client
@@ -45,13 +48,101 @@ SERVICE_ADD_METER_READING = "add_meter_reading"
 SERVICE_IDENTIFY_DEVICE = "identify_device"
 SERVICE_SET_AWAY_CONFIG = "set_away_configuration"
 
-# Smart polling configuration
-POLLING_INTERVALS = [
-    (100, 30, 120),
-    (1000, 15, 60),
-    (5000, 10, 30),
-    (20000, 5, 15),
-]
+# v1.11.0: Adaptive Smart Polling (removed hardcoded POLLING_INTERVALS table)
+# Now uses pure adaptive calculation based on remaining quota and time until reset
+
+
+def _get_calls_per_sync(config_manager: ConfigurationManager) -> int:
+    """Calculate API calls per sync based on enabled features.
+    
+    v1.11.0: Helper for adaptive polling calculation.
+    
+    Args:
+        config_manager: Configuration manager with feature settings
+        
+    Returns:
+        Number of API calls per sync cycle
+    """
+    calls = 1  # Base: zoneStates API call
+    
+    if config_manager.get_weather_enabled():
+        calls += 1  # weather API call
+    
+    if (config_manager.get_mobile_devices_enabled() and 
+        config_manager.get_mobile_devices_frequent_sync()):
+        calls += 1  # mobileDevices API call
+    
+    return calls
+
+
+def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: ConfigurationManager) -> int:
+    """Calculate adaptive polling interval based on remaining quota.
+    
+    v1.11.0: Pure adaptive polling - distributes remaining calls over remaining time.
+    Works universally for ANY quota tier (100, 200, 500, 5000, 20000, etc.)
+    
+    Formula: interval = (time_left / remaining) / safety_buffer
+    
+    Args:
+        ratelimit_data: Rate limit data with 'remaining' and 'reset_seconds'
+        config_manager: Configuration manager for feature settings
+        
+    Returns:
+        Polling interval in minutes (constrained by MIN/MAX)
+    """
+    reset_seconds = ratelimit_data.get("reset_seconds", 86400)
+    used = ratelimit_data.get("used", 0)
+    
+    # Apply Test Mode limit (override API remaining with 100 - used)
+    if config_manager.get_test_mode_enabled():
+        test_mode_limit = 100
+        remaining = max(0, test_mode_limit - used)
+        _LOGGER.debug(
+            f"Tado CE: Test Mode enabled - using {remaining} remaining "
+            f"(100 limit - {used} used), ignoring API remaining"
+        )
+    else:
+        # Use actual API remaining
+        remaining = ratelimit_data.get("remaining", 100)
+    
+    # Account for optional features (weather, mobile devices)
+    calls_per_sync = _get_calls_per_sync(config_manager)
+    effective_remaining = remaining / calls_per_sync
+    
+    # Safety check: if no remaining quota, use max interval
+    if effective_remaining <= 0:
+        _LOGGER.warning(
+            f"Tado CE: No remaining quota. Using max interval: {MAX_POLLING_INTERVAL} min"
+        )
+        return MAX_POLLING_INTERVAL
+    
+    # Pure adaptive: distribute remaining calls over remaining time
+    interval_minutes = (reset_seconds / 60) / effective_remaining
+    
+    # Apply safety buffer (reserve 10% for manual calls)
+    interval_minutes = interval_minutes / POLLING_SAFETY_BUFFER
+    
+    # Apply constraints (min 5, max 120)
+    interval_minutes = max(MIN_POLLING_INTERVAL, min(MAX_POLLING_INTERVAL, interval_minutes))
+    
+    # Log adaptive calculation (DEBUG level for detailed info)
+    _LOGGER.debug(
+        f"Tado CE Adaptive Polling:\n"
+        f"  Remaining: {remaining} calls\n"
+        f"  Time left: {reset_seconds/3600:.1f}h\n"
+        f"  Calls per sync: {calls_per_sync}\n"
+        f"  Calculated: {(reset_seconds / 60) / effective_remaining:.1f} min\n"
+        f"  Applied: {int(interval_minutes)} min"
+    )
+    
+    # Log warning if quota is very low
+    if remaining < 10:
+        _LOGGER.warning(
+            f"Tado CE: Low quota ({remaining} remaining). "
+            f"Using interval: {int(interval_minutes)} min"
+        )
+    
+    return int(interval_minutes)
 
 
 async def async_detect_reset_from_history(hass: HomeAssistant) -> datetime | None:
@@ -245,6 +336,9 @@ def is_daytime(config_manager: ConfigurationManager) -> bool:
 def get_polling_interval(config_manager: ConfigurationManager, cached_ratelimit: dict | None = None) -> int:
     """Get polling interval based on configuration and API rate limit.
     
+    v1.11.0: Uses adaptive polling based on remaining quota and time until reset.
+    Custom intervals are treated as targets, but adaptive polling can override if quota is low.
+    
     Args:
         config_manager: Configuration manager with polling settings
         cached_ratelimit: Pre-loaded ratelimit data (to avoid blocking I/O in async context)
@@ -254,46 +348,57 @@ def get_polling_interval(config_manager: ConfigurationManager, cached_ratelimit:
     """
     daytime = is_daytime(config_manager)
     
-    # Check for custom intervals first
+    # Get custom interval (if set)
+    custom_interval = None
     if daytime:
         custom_interval = config_manager.get_custom_day_interval()
-        if custom_interval is not None:
-            _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
-            return custom_interval
     else:
         custom_interval = config_manager.get_custom_night_interval()
-        if custom_interval is not None:
-            _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
-            return custom_interval
     
-    # Fall back to smart polling based on API quota (or Test Mode limit)
+    # Calculate adaptive interval based on remaining quota
+    adaptive_interval = None
     try:
-        # Get effective API limit (100 if Test Mode, otherwise actual limit)
-        effective_limit = None
-        if config_manager.get_test_mode_enabled():
-            effective_limit = 100
-            _LOGGER.info("Tado CE: Test Mode enabled - using 100 call limit")
-        elif cached_ratelimit is not None:
+        ratelimit_data = None
+        
+        if cached_ratelimit is not None:
             # Use pre-loaded data (async-safe)
-            effective_limit = cached_ratelimit.get("limit")
+            ratelimit_data = cached_ratelimit
         elif RATELIMIT_FILE.exists():
             # Fallback: sync read (only for non-async callers)
             # WARNING: This will trigger blocking I/O warning if called from async context
             with open(RATELIMIT_FILE) as f:
-                data = json.load(f)
-                effective_limit = data.get("limit")
+                ratelimit_data = json.load(f)
         
-        if effective_limit:
-            for threshold, day_interval, night_interval in POLLING_INTERVALS:
-                if effective_limit <= threshold:
-                    return day_interval if daytime else night_interval
-            # Use fastest for highest limits
-            _, day_interval, night_interval = POLLING_INTERVALS[-1]
-            return day_interval if daytime else night_interval
+        if ratelimit_data:
+            adaptive_interval = _calculate_adaptive_interval(ratelimit_data, config_manager)
+            
     except Exception as e:
-        _LOGGER.debug(f"Could not determine smart polling interval, using default: {e}")
+        _LOGGER.debug(f"Could not calculate adaptive polling interval, using default: {e}")
     
-    return DEFAULT_DAY_INTERVAL if daytime else DEFAULT_NIGHT_INTERVAL
+    # Decision logic: custom interval vs adaptive interval
+    if custom_interval is not None and adaptive_interval is not None:
+        # Both custom and adaptive intervals available
+        # Use the LONGER interval (more conservative) to protect quota
+        if adaptive_interval > custom_interval:
+            _LOGGER.warning(
+                f"Tado CE: Custom interval ({custom_interval} min) would exceed quota. "
+                f"Using adaptive interval ({adaptive_interval} min) to protect remaining calls."
+            )
+            return adaptive_interval
+        else:
+            # Custom interval is safe
+            _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
+            return custom_interval
+    elif custom_interval is not None:
+        # Only custom interval available (no ratelimit data)
+        _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
+        return custom_interval
+    elif adaptive_interval is not None:
+        # Only adaptive interval available
+        return adaptive_interval
+    else:
+        # Fallback to default intervals
+        return DEFAULT_DAY_INTERVAL if daytime else DEFAULT_NIGHT_INTERVAL
 
 
 def _log_quota_warning_if_needed(interval: int, daytime: bool, config_manager: ConfigurationManager):
@@ -1190,6 +1295,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         platforms_to_load.append(CALENDAR_PLATFORM)
         _LOGGER.info("Tado CE: Schedule Calendar enabled")
     
+
     # v1.9.0: Initialize Smart Comfort Manager if enabled (opt-in)
     if config_manager.get_smart_comfort_enabled():
         from .smart_comfort import (
@@ -1264,6 +1370,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         
         _LOGGER.info("Tado CE: Smart Comfort Analytics enabled")
+    
+    # v1.11.0: Initialize Heating Cycle Coordinator (always enabled for HEATING zones)
+    if home_id:
+        from .heating_cycle_coordinator import HeatingCycleCoordinator
+        from .heating_cycle_models import HeatingCycleConfig
+        
+        # Create config from settings (use defaults for now, will add config options later)
+        heating_cycle_config = HeatingCycleConfig(
+            enabled=True,
+            rolling_window_days=7,
+            inertia_threshold_celsius=0.1,
+            min_cycles=3,
+        )
+        
+        # Initialize coordinator
+        heating_cycle_coordinator = HeatingCycleCoordinator(
+            hass, home_id, heating_cycle_config
+        )
+        
+        # Setup coordinator (load storage, resume active cycles)
+        await heating_cycle_coordinator.async_setup()
+        
+        # Store in hass.data for sensor access
+        hass.data[DOMAIN]['heating_cycle_coordinator'] = heating_cycle_coordinator
+        
+        # Schedule periodic timeout check (every 60 seconds)
+        async def async_check_cycle_timeouts(_now):
+            """Periodic task to check for cycle timeouts."""
+            await heating_cycle_coordinator.check_timeouts()
+        
+        # Use track_time_interval for periodic execution
+        cancel_timeout_check = async_track_time_interval(
+            hass, 
+            async_check_cycle_timeouts,
+            timedelta(seconds=60)
+        )
+        hass.data[DOMAIN]['heating_cycle_timeout_cancel'] = cancel_timeout_check
+        
+        _LOGGER.info("Tado CE: Heating Cycle Analysis initialized")
     
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
     
@@ -1760,6 +1905,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Clean up Smart Comfort manager (saves data before cleanup)
     from .smart_comfort import cleanup_smart_comfort_manager
     cleanup_smart_comfort_manager()
+    
+    # v1.11.0: Cancel heating cycle timeout check timer
+    if DOMAIN in hass.data and 'heating_cycle_timeout_cancel' in hass.data[DOMAIN]:
+        cancel_func = hass.data[DOMAIN]['heating_cycle_timeout_cancel']
+        if cancel_func:
+            cancel_func()
+            _LOGGER.debug("Cancelled heating cycle timeout check timer")
     
     # Clean up data loader home_id
     from .data_loader import cleanup_data_loader
