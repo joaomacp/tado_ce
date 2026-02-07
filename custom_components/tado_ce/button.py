@@ -201,17 +201,26 @@ class TadoWaterHeaterTimerButton(ButtonEntity):
     async def async_press(self) -> None:
         """Handle button press - set water heater timer with preset duration."""
         from homeassistant.exceptions import HomeAssistantError
+        from homeassistant.helpers import entity_registry as er
         
         _LOGGER.info(f"Timer button pressed - {self._zone_name} for {self._duration} minutes")
         
-        # Construct entity ID
-        water_heater_entity_id = f"water_heater.{self._zone_name.lower().replace(' ', '_')}"
+        # Find water heater entity by unique_id (more reliable than constructing from name)
+        # This handles cases where HA adds suffix like _2 due to entity_id conflicts
+        registry = er.async_get(self.hass)
+        unique_id = f"tado_ce_zone_{self._zone_id}_water_heater"
+        entry = registry.async_get_entity_id("water_heater", DOMAIN, unique_id)
         
-        # CRITICAL FIX: Verify entity exists before calling service
+        if entry:
+            water_heater_entity_id = entry
+        else:
+            # Fallback to name-based construction for backwards compatibility
+            water_heater_entity_id = f"water_heater.{self._zone_name.lower().replace(' ', '_')}"
+        
+        # Verify entity exists before calling service
         if not self.hass.states.get(water_heater_entity_id):
             error_msg = f"Water heater entity not found: {water_heater_entity_id}"
             _LOGGER.error(f"Timer button failed - {error_msg}")
-            # Raise error to show in UI
             raise HomeAssistantError(error_msg)
         
         # Convert duration (minutes) to HH:MM:SS format
