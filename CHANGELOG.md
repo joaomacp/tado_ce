@@ -22,6 +22,7 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed hot water timer buttons not finding entity** - Timer buttons now use entity registry lookup instead of constructing entity ID from zone name, fixing cases where HA adds suffix like `_2` ([#93](https://github.com/hiall-fyi/tado_ce/issues/93) - @Fred224)
 - **Fixed Smart Boost button not finding climate entity** - Smart Boost now uses entity registry lookup with name-based fallback, consistent with water heater timer fix
 - **Improved heating rate fallback chain** - Preheat Advisor and Smart Boost now prioritize HeatingCycleCoordinator data, falling back to SmartComfortManager when unavailable
+- **Fixed threading issue in entity freshness cleanup** - Changed cleanup scheduler to use `hass.loop.call_soon_threadsafe()` to properly schedule tasks from executor thread, eliminating "hass.async_create_task from a thread" errors
 
 ### Code Quality Improvements
 - **Improved error handling** - File loading now uses specific exception handling (FileNotFoundError, PermissionError, JSONDecodeError) instead of generic Exception catching
