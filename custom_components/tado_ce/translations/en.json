@@ -117,85 +117,82 @@
         "title": "Tado CE Options",
         "description": "Configure Tado CE integration settings.\n\n⚠️ **Known Issue:** If options don't save after clicking Submit, please select an entity in 'Outdoor Temperature Entity' field (e.g., weather.home). This is a [Home Assistant Core limitation](https://github.com/home-assistant/core/issues/154795). See [Discussion #76](https://github.com/hiall-fyi/tado_ce/discussions/76) for details.",
         "sections": {
-          "features": {
-            "name": "Features",
+          "tado_features": {
+            "name": "Tado Features",
             "data": {
-              "weather_enabled": "Enable Weather Sensors",
-              "mobile_devices_enabled": "Enable Mobile Device Tracking",
-              "home_state_sync_enabled": "Enable Home/Away State Sync",
-              "offset_enabled": "Enable Temperature Offset Attribute",
-              "schedule_calendar_enabled": "Enable Schedule Calendar",
-              "smart_comfort_enabled": "Enable Smart Comfort Analytics",
-              "api_history_retention_days": "API History Retention (days)"
+              "weather_enabled": "Weather Sensors",
+              "mobile_devices_enabled": "Mobile Device Tracking",
+              "mobile_devices_frequent_sync": "Sync Mobile Devices Frequently",
+              "home_state_sync_enabled": "Home/Away State Sync",
+              "offset_enabled": "Temperature Offset Attribute"
             },
             "data_description": {
-              "weather_enabled": "Get outside temperature and solar intensity (+1 API call per quick sync)",
+              "weather_enabled": "Get outside temperature and solar intensity from Tado (+1 API call per sync)",
               "mobile_devices_enabled": "Track mobile devices for geofencing (+1 API call per full sync)",
-              "home_state_sync_enabled": "Sync Tado home/away state for Away Mode switch and climate presets (+1 API call per quick sync)",
-              "offset_enabled": "Add offset_celsius attribute to climate entities (+1 API call per device per full sync)",
-              "schedule_calendar_enabled": "Display heating schedules as calendar entities (read-only). Initial sync fetches all zones, then uses cached data. Use Refresh Schedule button to update.",
-              "smart_comfort_enabled": "Add heating/cooling rate sensors and time-to-target estimation per zone. No extra API calls - uses existing zone data.",
-              "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)"
+              "mobile_devices_frequent_sync": "Sync mobile devices on every sync instead of only during full sync",
+              "home_state_sync_enabled": "Sync Tado home/away state for Away Mode switch and climate presets (+1 API call per sync)",
+              "offset_enabled": "Add offset_celsius attribute to climate entities (+1 API call per device per full sync)"
             }
           },
-          "polling_schedule": {
-            "name": "Polling Schedule",
+          "tado_ce_exclusive": {
+            "name": "Tado CE Exclusive",
+            "data": {
+              "schedule_calendar_enabled": "Schedule Calendar",
+              "ufh_buffer_minutes": "UFH Buffer (minutes)",
+              "ufh_zones": "UFH Zones",
+              "hot_water_timer_duration": "Hot Water Timer Duration (minutes)",
+              "test_mode_enabled": "Test Mode (100 API call limit)"
+            },
+            "data_description": {
+              "schedule_calendar_enabled": "Display heating schedules as calendar entities (read-only)",
+              "ufh_buffer_minutes": "Extra buffer time for underfloor heating systems (0-60 min). Adds to preheat time for UFH thermal lag.",
+              "ufh_zones": "Select zones with underfloor heating. Leave empty to apply buffer to all zones.",
+              "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
+              "test_mode_enabled": "Simulate post-grace period with 100 API call limit for testing"
+            }
+          },
+          "smart_comfort_settings": {
+            "name": "Smart Comfort Settings",
+            "data": {
+              "smart_comfort_enabled": "Smart Comfort Analytics",
+              "outdoor_temp_entity": "Outdoor Temperature Entity",
+              "smart_comfort_mode": "Smart Comfort Mode",
+              "use_feels_like": "Use Feels-Like Temperature",
+              "mold_risk_window_type": "Mold Risk Window Type",
+              "smart_comfort_history_days": "Temperature History (days)",
+              "heating_cycle_history_days": "Thermal Analytics History (days)",
+              "heating_cycle_min_cycles": "Minimum Cycles for Analysis",
+              "heating_cycle_inertia_threshold": "Inertia Detection Threshold"
+            },
+            "data_description": {
+              "smart_comfort_enabled": "Enable preheat advisor, mold risk, comfort level sensors",
+              "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home)",
+              "smart_comfort_mode": "Adjusts target temperature based on outdoor temp and humidity",
+              "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature",
+              "mold_risk_window_type": "Window type for mold risk surface temperature calculation",
+              "smart_comfort_history_days": "Days of temperature history for rate calculation (1-30, default: 7)",
+              "heating_cycle_history_days": "Days of heating cycle history to keep (1-30, default: 7)",
+              "heating_cycle_min_cycles": "Minimum completed cycles required before showing analytics (1-10, default: 3)",
+              "heating_cycle_inertia_threshold": "Temperature change threshold to detect inertia end (0.05-0.5°C, default: 0.1)"
+            }
+          },
+          "polling_api": {
+            "name": "Polling & API",
             "data": {
               "day_start_hour": "Day Start Hour",
               "night_start_hour": "Night Start Hour",
-              "custom_day_interval": "Custom Day Polling Interval (minutes)",
-              "custom_night_interval": "Custom Night Polling Interval (minutes)",
-              "refresh_debounce_seconds": "Refresh Debounce Delay (seconds)",
-              "mobile_devices_frequent_sync": "Sync Mobile Devices Frequently"
+              "custom_day_interval": "Custom Day Interval (minutes)",
+              "custom_night_interval": "Custom Night Interval (minutes)",
+              "refresh_debounce_seconds": "Refresh Debounce (seconds)",
+              "api_history_retention_days": "API History Retention (days)"
             },
             "data_description": {
               "day_start_hour": "Hour when day period starts (0-23, default: 7)",
               "night_start_hour": "Hour when night period starts (0-23, default: 23)",
               "custom_day_interval": "Override smart polling for daytime (1-1440 minutes, leave empty for auto)",
               "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)",
-              "refresh_debounce_seconds": "Wait time before refreshing after changes (1-60 seconds, default: 15). Higher = fewer API calls",
-              "mobile_devices_frequent_sync": "Sync mobile devices on every quick sync instead of only during full sync (every 6 hours)"
-            }
-          },
-          "smart_comfort_settings": {
-            "name": "Smart Comfort Settings",
-            "data": {
-              "outdoor_temp_entity": "Outdoor Temperature Entity",
-              "smart_comfort_mode": "Smart Comfort Mode",
-              "use_feels_like": "Use Feels-Like Temperature",
-              "smart_comfort_history_days": "Temperature History (days)",
-              "mold_risk_window_type": "Mold Risk Window Type"
-            },
-            "data_description": {
-              "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home, sensor.outdoor_temperature)",
-              "smart_comfort_mode": "Adjusts target temperature based on outdoor temp and humidity",
-              "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature for weather compensation",
-              "smart_comfort_history_days": "Days of temperature history to keep for rate calculation (1-30, default: 7). More days = more accurate rates but larger cache file",
-              "mold_risk_window_type": "Window type for mold risk surface temperature calculation. Used with outdoor temperature to estimate cold spot temperature at window edges."
-            }
-          },
-          "thermal_analytics_settings": {
-            "name": "Thermal Analytics",
-            "data": {
-              "heating_cycle_history_days": "Cycle History (days)",
-              "heating_cycle_min_cycles": "Minimum Cycles for Analysis",
-              "heating_cycle_inertia_threshold": "Inertia Detection Threshold"
-            },
-            "data_description": {
-              "heating_cycle_history_days": "Days of heating cycle history to keep (1-30, default: 7)",
-              "heating_cycle_min_cycles": "Minimum completed cycles required before showing analytics (1-10, default: 3)",
-              "heating_cycle_inertia_threshold": "Temperature change threshold to detect inertia end (0.05-0.5°C, default: 0.1)"
-            }
-          },
-          "experimental": {
-            "name": "Experimental",
-            "data": {
-              "hot_water_timer_duration": "Hot Water Timer Duration (minutes)",
-              "test_mode_enabled": "Enable Test Mode (100 API call limit)"
-            },
-            "data_description": {
-              "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
-              "test_mode_enabled": "Simulate post-grace period with 100 API call limit for testing"
+              "refresh_debounce_seconds": "Delay before refreshing after state changes (1-60 seconds, default: 15)",
+              "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)"
             }
           }
         }

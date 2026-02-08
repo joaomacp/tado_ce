@@ -4,6 +4,41 @@
 
 ---
 
+## v2.0.0 (TBD) - Smart Polling, Mold Risk Enhancement & Thermal Analytics
+
+### Feature Ideas & Suggestions
+
+**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #89](https://github.com/hiall-fyi/tado_ce/issues/89), [Issue #90](https://github.com/hiall-fyi/tado_ce/issues/90)
+- Proposed Adaptive Smart Polling based on remaining API quota
+- Professional testing and validation of polling calculations
+- Suggested Enhanced Mold Risk with surface temperature calculation
+- Proposed window U-value configuration for accurate cold spot detection
+
+**[@dimitri-frank](https://github.com/dimitri-frank)** - [Issue #78](https://github.com/hiall-fyi/tado_ce/issues/78)
+- Proposed Two-Phase Heating Model (Thermal Inertia + Heating Rate)
+- Detailed analysis of "Phase A" (system response time) vs "Phase B" (actual heating)
+- Inspired the `_thermal_inertia` and `_avg_heating_rate` sensors
+
+**[@thefern69](https://github.com/thefern69)** - [Issue #78](https://github.com/hiall-fyi/tado_ce/issues/78), [Discussion #33](https://github.com/hiall-fyi/tado_ce/discussions/33)
+- Proposed Second Order Metrics for UFH and high thermal mass systems
+- Suggested Heating Acceleration and Approach Factor sensors
+- Original Smart Comfort idea that evolved into Thermal Analytics
+
+**[@Fred224](https://github.com/Fred224)** - [Issue #84](https://github.com/hiall-fyi/tado_ce/issues/84), [Issue #93](https://github.com/hiall-fyi/tado_ce/issues/93)
+- Reported Timer Duration UI limitation (HA Core issue, documented workaround)
+- Reported Hot Water Timer buttons not finding entity (fixed entity registry lookup)
+
+### What Was Added/Fixed
+
+- ✅ **Issue #89**: Adaptive Smart Polling - real-time interval based on remaining quota
+- ✅ **Issue #90**: Enhanced Mold Risk - surface temperature calculation with window U-value
+- ✅ **Issue #78**: Thermal Analytics - complete heating cycle tracking with first/second order metrics
+- ✅ **Issue #84**: Documented timer duration workaround via services
+- ✅ **Issue #93**: Hot Water Timer buttons now use entity registry lookup
+- ✅ **Discussion #86**: API Monitoring Sensors for dashboard visualization
+
+---
+
 ## v1.10.0 (2026-02-05) - Coordinator Race Condition Fix
 
 ### Bug Reports & Issue Reporters

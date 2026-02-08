@@ -10,66 +10,47 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 Major release with adaptive polling, enhanced mold risk, thermal analytics, and API monitoring.
 
-### ✅ Completed for v2.0.0 (includes original v1.11.0 scope)
+### ✅ All Completed
 
 **Adaptive Smart Polling** ([#89](https://github.com/hiall-fyi/tado_ce/issues/89)):
-- [x] **Real-time adaptive intervals** - Calculate polling based on remaining quota and time
-- [x] **Universal quota support** - Works for any tier (100, 200, 500, 5000, 20000+)
-- [x] **Self-healing behavior** - Automatically adapts to manual calls and HA restarts
-- [x] **Transparent logging** - Full visibility into interval calculations
-- [x] **Quota Reserve Protection** - Pauses polling when quota critically low, reserves for manual operations
-
-**Note**: Originally planned for v2.0.0, but included in v2.0.0 based on user validation.
+- [x] Real-time adaptive intervals - Calculate polling based on remaining quota and time
+- [x] Universal quota support - Works for any tier (100, 5000, 20000)
+- [x] Self-healing behavior - Automatically adapts to manual calls and HA restarts
+- [x] Transparent logging - Full visibility into interval calculations
+- [x] Quota Reserve Protection - Pauses polling when quota critically low
 
 **Enhanced Mold Risk Assessment** ([#90](https://github.com/hiall-fyi/tado_ce/issues/90)):
-- [x] **U-value estimation** - Calculate window surface temperature from outdoor temp and window type
-- [x] **2-tier fallback strategy** - Automatic fallback: U-value estimation → room temperature
-- [x] **Configurable window types** - Single/double/triple pane with standard U-values
-- [x] **ASHRAE 160 compliance** - Surface temperature-based mold risk assessment
+- [x] U-value estimation - Calculate window surface temperature from outdoor temp and window type
+- [x] 2-tier fallback strategy - Automatic fallback: U-value estimation → room temperature
+- [x] Configurable window types - Single/double/triple pane with standard U-values
+- [x] ASHRAE 160 compliance - Surface temperature-based mold risk assessment
 
-**Note**: Industry-standard approach using surface temperature instead of room average. External sensor support not implemented due to complexity and limited use case.
+**Thermal Analytics** ([#78](https://github.com/hiall-fyi/tado_ce/issues/78)):
+- [x] Two-Phase Heating Model - Separate boost and maintenance phases
+- [x] Heating Cycle Tracking - Track heating cycles with start/end times
+- [x] Smart Comfort Analytics - Comfort score, thermal stability, efficiency metrics
+- [x] Second-Order Analysis - Heating acceleration and approach factor for improved preheat estimation
+- [x] Heating Acceleration Sensor - Shows how quickly heating rate increases (°C/h²)
+- [x] Approach Factor Sensor - Shows deceleration near setpoint (%)
+- [x] Preheat Binary Sensor - `binary_sensor.{zone}_preheat_now` turns ON when it's time to start heating ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
+- [x] UFH Slow Response Mode - Configurable buffer time for underfloor heating thermal lag ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 
----
-
-### ✅ Multi-Home Infrastructure (v2.0.0)
+**API Monitoring** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65), [Discussion #86](https://github.com/hiall-fyi/tado_ce/discussions/86)):
+- [x] Next Sync Sensor - Shows next API sync time with countdown
+- [x] Polling Interval Sensor - Shows current polling interval with source
+- [x] Call History Sensor - API call history with statistics
+- [x] API Call Breakdown Sensor - Breakdown by endpoint type
+- [x] Granular API Call Options - Enable/disable optional call types in Options
 
 **Multi-Home Infrastructure** (foundation for future multi-home support):
-- [x] **Per-home data file naming** - `get_data_file(base_name, home_id)` in const.py
-- [x] **Data loader home_id support** - `set_current_home_id()` / `get_current_home_id()` with fallback to legacy files
-- [x] **Hub device identifier with home_id** - `tado_ce_hub_{home_id}` format
-
-### 🔲 Remaining for v2.0.0
-
-**API Monitoring Enhancements** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65), [Discussion #86](https://github.com/hiall-fyi/tado_ce/discussions/86)):
-- [x] **Next Sync Sensor** - Shows next API sync time with countdown
-- [x] **Polling Interval Sensor** - Shows current polling interval with source
-- [x] **Call History Sensor** - API call history with statistics (calls_per_hour, calls_today, most_called_endpoint)
-- [x] **API Call Breakdown Sensor** - Breakdown by endpoint type with 24h/today/total counts
-- [ ] **Call Priority System** - Configurable weighting for different call types (Future)
-- [ ] **Granular API Call Options** - Enable/disable optional call types in Advanced settings (Future)
-
-**Multi-Home Support:**
-- [ ] **Multi-home preference in config flow** - New users asked "Plan to add multiple homes?" to enable home_id prefix
-- [ ] **Backwards-compatible entity unique_id** - Existing users keep current IDs, new users can opt-in to prefix
-- [ ] **Allow multiple integration entries** - Each entry for a different home
-- [ ] **Thread-safe home_id handling** - Replace global `_current_home_id` with per-entry context
-- [ ] **Per-home async_api client** - Change from singleton to per-entry client instances
-- [ ] **Per-home file paths in async_api** - Use `get_data_file(base_name, home_id)` instead of constants
-- [ ] **Multi-home setup guide** - Documentation for users with multiple properties
+- [x] Per-home data file naming - `get_data_file(base_name, home_id)` in const.py
+- [x] Data loader home_id support - `set_current_home_id()` / `get_current_home_id()`
+- [x] Hub device identifier with home_id - `tado_ce_hub_{home_id}` format
 
 **Setup & Polish:**
-- [x] **Auto-assign Areas** - Automatically match zone names to HA areas during setup using fuzzy matching ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
-- [x] **Setup wizard improvements** - Streamlined flow with better error messages (iteratively improved over multiple releases)
-- [x] **Delete tado_api.py** - File deprecated in v1.6.0, removed in v2.0.0
-- [x] **Delete error_handler.py** - Only used by tado_api.py, removed in v2.0.0
-- [x] **Cleanup orphan data files** - Legacy files migrated to per-home format (e.g., `zones.json` → `zones_{home_id}.json`) in v2.0.0
-
-**Local API (Experimental):**
-- [ ] **Local-first, cloud-fallback** - Use local API when available, fall back to cloud
-- [ ] **Hybrid mode** - Configurable per-feature (e.g., local for reads, cloud for writes)
-- [ ] **Community testing program** - Beta channel for local API testing
-
-**Note**: Local API requires community help to test across different Tado hardware versions. See [Discussion #29](https://github.com/hiall-fyi/tado_ce/discussions/29).
+- [x] Auto-assign Areas - Match zone names to HA areas using fuzzy matching ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
+- [x] Setup wizard improvements - Streamlined flow with better error messages
+- [x] Cleanup deprecated files - Removed tado_api.py, error_handler.py, orphan data files
 
 ---
 
@@ -77,12 +58,11 @@ Major release with adaptive polling, enhanced mold risk, thermal analytics, and 
 
 Features under consideration - need more community feedback or technical research.
 
+**API Management:**
+- **Call Priority System** - Configurable weighting for different call types (e.g., zoneStates every 10 min, weather every 30 min). Requires significant coordinator architecture changes. Low priority - current adaptive polling handles most use cases.
+
 **Heating Intelligence:**
-- **Second Order Approximation for Preheat** - Use quadratic model (heating acceleration/deceleration) instead of linear rate for more accurate preheat timing. Accounts for: heating slowing as approaching target, thermal momentum of UFH, cooling rate before heating starts ([#78](https://github.com/hiall-fyi/tado_ce/issues/78) - @dimitri-frank, @thefern69)
-- **Preheat Binary Sensor** - `binary_sensor.zone_preheat_now` that turns ON when it's time to start heating ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 - **Turnkey Early Start Replacement** - Auto-trigger heating at recommended preheat time, stop when target reached or next schedule starts ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
-- **UFH Slow Response Mode** - Add buffer time for underfloor heating thermal lag ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
-- **Rate Trend Indicator** - Detect "acceleration" when heating is catching up, useful for UFH ([Discussion #33](https://github.com/hiall-fyi/tado_ce/discussions/33))
 
 **Environment Sensors** ([#64](https://github.com/hiall-fyi/tado_ce/issues/64)):
 - **Indoor Air Quality (IAQ)** - Air quality score per zone (requires additional sensors)
@@ -92,6 +72,18 @@ Features under consideration - need more community feedback or technical researc
 - Apply for HACS default repository inclusion
 - Max Flow Temperature control (requires OpenTherm, [#15](https://github.com/hiall-fyi/tado_ce/issues/15))
 - Combi boiler mode - hide timers/schedules for on-demand hot water ([#15](https://github.com/hiall-fyi/tado_ce/issues/15))
+
+**Local API (Experimental):**
+- **Local-first, cloud-fallback** - Use local API when available, fall back to cloud. Requires community help to test across different Tado hardware versions. See [Discussion #29](https://github.com/hiall-fyi/tado_ce/discussions/29).
+- **Hybrid mode** - Configurable per-feature (e.g., local for reads, cloud for writes)
+
+**Multi-Home Support:**
+- **Multi-home preference in config flow** - New users asked "Plan to add multiple homes?" to enable home_id prefix
+- **Allow multiple integration entries** - Each entry for a different home
+- **Thread-safe home_id handling** - Replace global `_current_home_id` with per-entry context (current architecture uses global state that would conflict with multiple homes)
+- **Per-home async_api client** - Change from singleton to per-entry client instances
+- **Multi-home setup guide** - Documentation for users with multiple properties
+- **Note**: Multi-home infrastructure (per-home data files, device identifiers) is already in place. Remaining work is primarily refactoring global state to per-entry context. Estimated 12-17 hours of work.
 
 ---
 

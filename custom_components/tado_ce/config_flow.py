@@ -399,44 +399,48 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
         """Manage the options with collapsible sections."""
         errors = {}
         
+        # v2.0.0: Load zone names for UFH zone selector
+        from .data_loader import load_zones_info_file
+        zones_info = await self.hass.async_add_executor_job(load_zones_info_file)
+        heating_zones = []
+        if zones_info:
+            for zone in zones_info:
+                if zone.get('type') == 'HEATING':
+                    zone_id = str(zone.get('id'))
+                    zone_name = zone.get('name', f"Zone {zone_id}")
+                    heating_zones.append({"value": zone_id, "label": zone_name})
+        
         if user_input is not None:
             # Flatten nested section data
             processed_input = {}
             
-            # Flatten features section
-            if 'features' in user_input:
-                features = user_input['features']
-                for key in ['weather_enabled', 'mobile_devices_enabled', 'home_state_sync_enabled', 'offset_enabled', 'schedule_calendar_enabled', 'smart_comfort_enabled', 'api_history_retention_days']:
-                    if key in features:
-                        processed_input[key] = features[key]
+            # Flatten tado_features section (official Tado features)
+            if 'tado_features' in user_input:
+                tado = user_input['tado_features']
+                for key in ['weather_enabled', 'mobile_devices_enabled', 'mobile_devices_frequent_sync', 'home_state_sync_enabled', 'offset_enabled']:
+                    if key in tado:
+                        processed_input[key] = tado[key]
             
-            # Flatten polling_schedule section
-            if 'polling_schedule' in user_input:
-                polling = user_input['polling_schedule']
-                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 'refresh_debounce_seconds', 'mobile_devices_frequent_sync']:
-                    if key in polling:
-                        processed_input[key] = polling[key]
+            # Flatten tado_ce_exclusive section
+            if 'tado_ce_exclusive' in user_input:
+                exclusive = user_input['tado_ce_exclusive']
+                for key in ['schedule_calendar_enabled', 'ufh_buffer_minutes', 'ufh_zones', 'hot_water_timer_duration', 'test_mode_enabled']:
+                    if key in exclusive:
+                        processed_input[key] = exclusive[key]
             
-            # Flatten experimental section
-            if 'experimental' in user_input:
-                experimental = user_input['experimental']
-                for key in ['hot_water_timer_duration', 'test_mode_enabled']:
-                    if key in experimental:
-                        processed_input[key] = experimental[key]
-            
-            # Flatten smart_comfort_settings section
+            # Flatten smart_comfort_settings section (includes thermal analytics)
             if 'smart_comfort_settings' in user_input:
                 smart_comfort = user_input['smart_comfort_settings']
-                for key in ['outdoor_temp_entity', 'smart_comfort_mode', 'use_feels_like', 'smart_comfort_history_days', 'mold_risk_window_type']:
+                for key in ['smart_comfort_enabled', 'outdoor_temp_entity', 'smart_comfort_mode', 'use_feels_like', 'mold_risk_window_type', 'smart_comfort_history_days', 'heating_cycle_history_days', 'heating_cycle_min_cycles', 'heating_cycle_inertia_threshold']:
                     if key in smart_comfort:
                         processed_input[key] = smart_comfort[key]
             
-            # Flatten thermal_analytics_settings section (v1.11.0, renamed from heating_cycle_settings)
-            if 'thermal_analytics_settings' in user_input:
-                thermal_analytics = user_input['thermal_analytics_settings']
-                for key in ['heating_cycle_history_days', 'heating_cycle_min_cycles', 'heating_cycle_inertia_threshold']:
-                    if key in thermal_analytics:
-                        processed_input[key] = thermal_analytics[key]
+            # Flatten polling_api section
+            if 'polling_api' in user_input:
+                polling = user_input['polling_api']
+                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 'refresh_debounce_seconds', 'api_history_retention_days']:
+                    if key in polling:
+                        processed_input[key] = polling[key]
             
             # Handle custom day interval
             day_interval_str = processed_input.get('custom_day_interval', '')
@@ -480,24 +484,80 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                # === Features (collapsed) ===
-                vol.Required("features"): data_entry_flow.section(
+                # === Tado Features (official Tado data) ===
+                vol.Required("tado_features"): data_entry_flow.section(
                     vol.Schema({
                         vol.Optional('weather_enabled', default=options.get('weather_enabled', False)): BooleanSelector(),
                         vol.Optional('mobile_devices_enabled', default=options.get('mobile_devices_enabled', False)): BooleanSelector(),
+                        vol.Optional('mobile_devices_frequent_sync', default=options.get('mobile_devices_frequent_sync', False)): BooleanSelector(),
                         vol.Optional('home_state_sync_enabled', default=options.get('home_state_sync_enabled', False)): BooleanSelector(),
                         vol.Optional('offset_enabled', default=options.get('offset_enabled', False)): BooleanSelector(),
+                    }),
+                    {"collapsed": True},
+                ),
+                
+                # === Tado CE Exclusive ===
+                vol.Required("tado_ce_exclusive"): data_entry_flow.section(
+                    vol.Schema({
                         vol.Optional('schedule_calendar_enabled', default=options.get('schedule_calendar_enabled', False)): BooleanSelector(),
+                        vol.Optional('ufh_buffer_minutes', default=options.get('ufh_buffer_minutes', 0)): NumberSelector(
+                            NumberSelectorConfig(min=0, max=60, step=5, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
+                        ),
+                        vol.Optional('ufh_zones', default=options.get('ufh_zones', [])): SelectSelector(
+                            SelectSelectorConfig(
+                                options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
+                                multiple=True,
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
+                        vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
+                            NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
+                        ),
+                        vol.Optional('test_mode_enabled', default=options.get('test_mode_enabled', False)): BooleanSelector(),
+                    }),
+                    {"collapsed": True},
+                ),
+                
+                # === Smart Comfort Settings (includes thermal analytics) ===
+                vol.Required("smart_comfort_settings"): data_entry_flow.section(
+                    vol.Schema({
                         vol.Optional('smart_comfort_enabled', default=options.get('smart_comfort_enabled', False)): BooleanSelector(),
-                        vol.Optional('api_history_retention_days', default=options.get('api_history_retention_days', 14)): NumberSelector(
-                            NumberSelectorConfig(min=0, max=365, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
+                        vol.Optional('outdoor_temp_entity', default=options.get('outdoor_temp_entity', '')): EntitySelector(
+                            EntitySelectorConfig(domain=["sensor", "weather"])
+                        ),
+                        vol.Optional('smart_comfort_mode', default=options.get('smart_comfort_mode', options.get('weather_compensation', 'none'))): SelectSelector(
+                            SelectSelectorConfig(
+                                options=["none", "light", "moderate", "aggressive"],
+                                translation_key="smart_comfort_mode",
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
+                        vol.Optional('use_feels_like', default=options.get('use_feels_like', False)): BooleanSelector(),
+                        vol.Optional('mold_risk_window_type', default=options.get('mold_risk_window_type', 'double_pane')): SelectSelector(
+                            SelectSelectorConfig(
+                                options=["single_pane", "double_pane", "triple_pane", "passive_house"],
+                                translation_key="mold_risk_window_type",
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
+                        vol.Optional('smart_comfort_history_days', default=options.get('smart_comfort_history_days', 7)): NumberSelector(
+                            NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
+                        ),
+                        vol.Optional('heating_cycle_history_days', default=options.get('heating_cycle_history_days', 7)): NumberSelector(
+                            NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
+                        ),
+                        vol.Optional('heating_cycle_min_cycles', default=options.get('heating_cycle_min_cycles', 3)): NumberSelector(
+                            NumberSelectorConfig(min=1, max=10, step=1, mode=NumberSelectorMode.BOX)
+                        ),
+                        vol.Optional('heating_cycle_inertia_threshold', default=options.get('heating_cycle_inertia_threshold', 0.1)): NumberSelector(
+                            NumberSelectorConfig(min=0.05, max=0.5, step=0.05, mode=NumberSelectorMode.BOX, unit_of_measurement="°C")
                         ),
                     }),
                     {"collapsed": True},
                 ),
                 
-                # === Polling Schedule (collapsed) ===
-                vol.Required("polling_schedule"): data_entry_flow.section(
+                # === Polling & API Management ===
+                vol.Required("polling_api"): data_entry_flow.section(
                     vol.Schema({
                         vol.Required('day_start_hour', default=options.get('day_start_hour', 7)): NumberSelector(
                             NumberSelectorConfig(min=0, max=23, step=1, mode=NumberSelectorMode.BOX)
@@ -514,62 +574,9 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('refresh_debounce_seconds', default=options.get('refresh_debounce_seconds', 15)): NumberSelector(
                             NumberSelectorConfig(min=1, max=60, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="s")
                         ),
-                        vol.Optional('mobile_devices_frequent_sync', default=options.get('mobile_devices_frequent_sync', False)): BooleanSelector(),
-                    }),
-                    {"collapsed": True},
-                ),
-                
-                # === Smart Comfort Settings (collapsed) ===
-                vol.Required("smart_comfort_settings"): data_entry_flow.section(
-                    vol.Schema({
-                        vol.Optional('outdoor_temp_entity', default=options.get('outdoor_temp_entity', '')): EntitySelector(
-                            EntitySelectorConfig(domain=["sensor", "weather"])
+                        vol.Optional('api_history_retention_days', default=options.get('api_history_retention_days', 14)): NumberSelector(
+                            NumberSelectorConfig(min=0, max=365, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
                         ),
-                        vol.Optional('smart_comfort_mode', default=options.get('smart_comfort_mode', options.get('weather_compensation', 'none'))): SelectSelector(
-                            SelectSelectorConfig(
-                                options=["none", "light", "moderate", "aggressive"],
-                                translation_key="smart_comfort_mode",
-                                mode=SelectSelectorMode.DROPDOWN
-                            )
-                        ),
-                        vol.Optional('use_feels_like', default=options.get('use_feels_like', False)): BooleanSelector(),
-                        vol.Optional('smart_comfort_history_days', default=options.get('smart_comfort_history_days', 7)): NumberSelector(
-                            NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
-                        ),
-                        vol.Optional('mold_risk_window_type', default=options.get('mold_risk_window_type', 'double_pane')): SelectSelector(
-                            SelectSelectorConfig(
-                                options=["single_pane", "double_pane", "triple_pane", "passive_house"],
-                                translation_key="mold_risk_window_type",
-                                mode=SelectSelectorMode.DROPDOWN
-                            )
-                        ),
-                    }),
-                    {"collapsed": True},
-                ),
-                
-                # === Thermal Analytics Settings (v1.11.0, renamed from heating_cycle_settings) ===
-                vol.Required("thermal_analytics_settings"): data_entry_flow.section(
-                    vol.Schema({
-                        vol.Optional('heating_cycle_history_days', default=options.get('heating_cycle_history_days', 7)): NumberSelector(
-                            NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
-                        ),
-                        vol.Optional('heating_cycle_min_cycles', default=options.get('heating_cycle_min_cycles', 3)): NumberSelector(
-                            NumberSelectorConfig(min=1, max=10, step=1, mode=NumberSelectorMode.BOX)
-                        ),
-                        vol.Optional('heating_cycle_inertia_threshold', default=options.get('heating_cycle_inertia_threshold', 0.1)): NumberSelector(
-                            NumberSelectorConfig(min=0.05, max=0.5, step=0.05, mode=NumberSelectorMode.BOX, unit_of_measurement="°C")
-                        ),
-                    }),
-                    {"collapsed": True},
-                ),
-                
-                # === Experimental (collapsed) ===
-                vol.Required("experimental"): data_entry_flow.section(
-                    vol.Schema({
-                        vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
-                            NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
-                        ),
-                        vol.Optional('test_mode_enabled', default=options.get('test_mode_enabled', False)): BooleanSelector(),
                     }),
                     {"collapsed": True},
                 ),

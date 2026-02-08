@@ -2163,6 +2163,17 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
             cycle_heating_rate = None
             cycle_confidence = None
             
+            # v2.0.0: Get UFH buffer from options (only for selected zones)
+            ufh_buffer = 0
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                ufh_buffer_global = entry.options.get('ufh_buffer_minutes', 0)
+                ufh_zones = entry.options.get('ufh_zones', [])
+                # Apply buffer only if: buffer > 0 AND (no zones selected OR this zone is selected)
+                if ufh_buffer_global > 0:
+                    if not ufh_zones or self._zone_id in ufh_zones:
+                        ufh_buffer = ufh_buffer_global
+                break
+            
             if heating_cycle_coordinator:
                 zone_data_cycle = heating_cycle_coordinator.get_zone_data(self._zone_id)
                 if zone_data_cycle and zone_data_cycle.get("heating_rate") is not None:
@@ -2183,6 +2194,10 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
                 temp_diff = self._target_temp - self._current_temp
                 hours_needed = temp_diff / cycle_heating_rate
                 minutes_needed = int(hours_needed * 60)
+                
+                # v2.0.0: Add UFH buffer for underfloor heating systems
+                minutes_needed += ufh_buffer
+                
                 minutes_needed = min(minutes_needed, 240)  # Cap at 4 hours
                 
                 recommended_start = next_block.start_time - timedelta(minutes=minutes_needed)
@@ -2192,6 +2207,8 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
                 self._heating_rate = cycle_heating_rate
                 self._confidence = cycle_confidence
                 self._summary = f"Start at {self._attr_native_value} ({minutes_needed} min to reach {self._target_temp:.1f}°C)"
+                if ufh_buffer > 0:
+                    self._summary += f" (includes {ufh_buffer} min UFH buffer)"
                 self._attr_available = True
                 return
             
@@ -2215,11 +2232,19 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
                 return
             
             # We have a valid preheat recommendation
-            self._attr_native_value = advice.recommended_start_time.strftime("%H:%M")
-            self._duration_minutes = advice.estimated_duration_minutes
+            # v2.0.0: Apply UFH buffer to SmartComfortManager advice
+            from datetime import timedelta
+            adjusted_duration = advice.estimated_duration_minutes + ufh_buffer
+            adjusted_duration = min(adjusted_duration, 240)  # Cap at 4 hours
+            adjusted_start = next_block.start_time - timedelta(minutes=adjusted_duration)
+            
+            self._attr_native_value = adjusted_start.strftime("%H:%M")
+            self._duration_minutes = adjusted_duration
             self._heating_rate = advice.heating_rate
             self._confidence = advice.confidence
             self._summary = advice.to_summary()
+            if ufh_buffer > 0:
+                self._summary += f" (includes {ufh_buffer} min UFH buffer)"
             self._attr_available = True
             
         except Exception as e:

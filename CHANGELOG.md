@@ -41,7 +41,6 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed setup timeout issue** - Changed cleanup task from blocking while loop to proper Home Assistant timer pattern using async_track_time_interval
 
 ### Setup & Polish
-- **Entity Descriptions** - All sensors and binary sensors now include helpful descriptions visible in HA entity info panel ([#91](https://github.com/hiall-fyi/tado_ce/issues/91))
 - **Removed 'Tado CE' prefix from entity names** - Hub sensors now use cleaner names (e.g., 'API Usage' instead of 'Tado CE API Usage')
 - **Auto-assign areas to zone devices** - Automatically matches zone names to Home Assistant areas during setup using fuzzy matching (70% confidence threshold). Skips zones that already have areas assigned. ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
 

@@ -240,3 +240,9 @@ WINDOW_U_VALUES = {
 }
 DEFAULT_WINDOW_TYPE = "double_pane"
 INTERIOR_SURFACE_HEAT_TRANSFER_COEFFICIENT = 8.0  # W/m²K (standard value for indoor surfaces)
+
+# v2.0.0: UFH (Underfloor Heating) Slow Response Mode
+# Additional buffer time for underfloor heating systems which have higher thermal lag
+UFH_BUFFER_MINUTES_DEFAULT = 0  # Default: no buffer (standard radiators)
+UFH_BUFFER_MINUTES_MIN = 0
+UFH_BUFFER_MINUTES_MAX = 60     # Max 60 minutes additional buffer

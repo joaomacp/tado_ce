@@ -27,6 +27,9 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     from .config_manager import ConfigurationManager
     config_manager = ConfigurationManager(entry)
     
+    # Check if Smart Comfort is enabled (required for Preheat Now sensor)
+    smart_comfort_enabled = entry.options.get('smart_comfort_enabled', False)
+    
     sensors = []
     
     # Home/Away sensor (global)
@@ -44,6 +47,10 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                 owd = zone.get('openWindowDetection') or {}
                 if owd.get('supported', False):
                     sensors.append(TadoOpenWindowSensor(zone_id, zone_name, zone_type))
+                
+                # Add Preheat Now sensor if Smart Comfort is enabled
+                if smart_comfort_enabled:
+                    sensors.append(TadoPreheatNowSensor(zone_id, zone_name, zone_type))
             
 
     
@@ -141,6 +148,122 @@ class TadoOpenWindowSensor(BinarySensorEntity):
             else:
                 self._attr_available = False
         except Exception:
+            self._attr_available = False
+
+
+class TadoPreheatNowSensor(BinarySensorEntity):
+    """Binary sensor indicating when to start preheating.
+    
+    Turns ON when current time >= recommended preheat start time.
+    Uses data from TadoPreheatAdvisorSensor to determine timing.
+    
+    v2.0.0: UFH buffer is already applied in TadoPreheatAdvisorSensor,
+    so this sensor just reads the adjusted time directly.
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._attr_name = f"{zone_name} Preheat Now"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_preheat_now"
+        self._attr_device_class = BinarySensorDeviceClass.HEAT
+        self._attr_available = False
+        self._attr_is_on = None
+        self._attr_device_info = get_zone_device_info(zone_id, zone_name, zone_type)
+        
+        # Attributes for debugging/display
+        self._recommended_start = None
+        self._target_time = None
+        self._target_temp = None
+        self._current_temp = None
+        self._duration_minutes = None
+        self._confidence = "unknown"
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "recommended_start": self._recommended_start,
+            "target_time": self._target_time,
+            "target_temperature": self._target_temp,
+            "current_temperature": self._current_temp,
+            "duration_minutes": self._duration_minutes,
+            "confidence": self._confidence,
+            "zone_type": self._zone_type,
+        }
+    
+    @property
+    def icon(self):
+        """Dynamic icon based on state."""
+        if self._attr_is_on:
+            return "mdi:radiator"
+        return "mdi:radiator-off"
+    
+    def update(self):
+        """Update preheat now status.
+        
+        Logic:
+        1. Get preheat advisor data for this zone (already includes UFH buffer)
+        2. If recommended start time exists and is valid
+        3. Turn ON if current time >= recommended start time
+        """
+        try:
+            from datetime import datetime
+            
+            if not self.hass:
+                self._attr_available = False
+                return
+            
+            # Find the preheat advisor sensor for this zone
+            # Try different entity_id formats
+            zone_slug = self._zone_name.lower().replace(' ', '_')
+            preheat_advisor_id = f"sensor.{zone_slug}_preheat_advisor"
+            preheat_state = self.hass.states.get(preheat_advisor_id)
+            
+            if not preheat_state:
+                # Try with zone name as-is
+                preheat_advisor_id = f"sensor.{self._zone_name}_preheat_advisor"
+                preheat_state = self.hass.states.get(preheat_advisor_id)
+            
+            # Copy attributes from preheat advisor
+            if preheat_state:
+                self._target_time = preheat_state.attributes.get('target_time')
+                self._target_temp = preheat_state.attributes.get('target_temperature')
+                self._current_temp = preheat_state.attributes.get('current_temperature')
+                self._duration_minutes = preheat_state.attributes.get('duration_minutes')
+                self._confidence = preheat_state.attributes.get('confidence', 'unknown')
+            
+            # Check for non-actionable states
+            non_actionable_states = ('unavailable', 'unknown', 'No schedule', 'Heating OFF', 'Ready', 'Insufficient data')
+            if not preheat_state or preheat_state.state in non_actionable_states:
+                self._attr_is_on = False
+                self._attr_available = True
+                self._recommended_start = None
+                return
+            
+            # Parse recommended start time (format: "HH:MM")
+            # Note: UFH buffer is already applied in TadoPreheatAdvisorSensor
+            try:
+                recommended_str = preheat_state.state
+                now = datetime.now()
+                recommended_time = datetime.strptime(recommended_str, "%H:%M").replace(
+                    year=now.year, month=now.month, day=now.day
+                )
+                
+                self._recommended_start = recommended_str
+                
+                # Check if it's time to preheat
+                self._attr_is_on = now >= recommended_time
+                self._attr_available = True
+                
+            except ValueError:
+                # Invalid time format
+                self._attr_is_on = False
+                self._attr_available = True
+                self._recommended_start = None
+                
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update preheat now for zone {self._zone_id}: {e}")
             self._attr_available = False
 
 

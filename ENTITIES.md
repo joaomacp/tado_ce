@@ -326,6 +326,31 @@ Automatically created for all HEATING zones to provide improved preheat timing e
 | Entity | Type | Description |
 |--------|------|-------------|
 | `binary_sensor.{zone}_open_window` | Binary Sensor | Open window detected |
+| `binary_sensor.{zone}_preheat_now` | Binary Sensor | Time to start preheating (v2.0.0, requires Smart Comfort) |
+
+### Preheat Now Binary Sensor (v2.0.0)
+
+Turns ON when it's time to start preheating to reach target temperature by the scheduled time.
+
+**Requirements:**
+- Smart Comfort Analytics must be enabled in Options
+- Zone must have a valid schedule with upcoming heating block
+- Sufficient heating cycle data for preheat estimation
+
+**Attributes:**
+| Attribute | Description |
+|-----------|-------------|
+| `recommended_start` | When to start preheating (from Preheat Advisor, includes UFH buffer if configured) |
+| `target_time` | When target temperature should be reached |
+| `target_temperature` | Target temperature from schedule |
+| `current_temperature` | Current zone temperature |
+| `duration_minutes` | Estimated preheat duration (includes UFH buffer) |
+| `confidence` | Confidence level of preheat estimate |
+
+**UFH Buffer (Underfloor Heating):**
+Configure in Options → Thermal Analytics:
+- "UFH Buffer (minutes)" - Extra lead time for underfloor heating (0-60 min)
+- "UFH Zones" - Select which zones have underfloor heating. Leave empty to apply buffer to all zones.
 
 **Note:** Entity naming changed in v1.2.0 - no "tado_ce_" prefix for zone entities.
 
