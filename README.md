@@ -6,7 +6,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.1.3-blue?style=for-the-badge&logo=home-assistant) ![Tado](https://img.shields.io/badge/Tado-V2%2FV3%2FV3%2B-orange?style=for-the-badge) ![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)
 
 <!-- Status Badges -->
-![Version](https://img.shields.io/badge/Version-1.11.0-purple?style=for-the-badge) ![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge) ![Maintained](https://img.shields.io/badge/Maintained-Yes-green.svg?style=for-the-badge) ![Tests](https://img.shields.io/badge/Tests-716%20Passing-success?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.0.0-purple?style=for-the-badge) ![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge) ![Maintained](https://img.shields.io/badge/Maintained-Yes-green.svg?style=for-the-badge) ![Tests](https://img.shields.io/badge/Tests-716%20Passing-success?style=for-the-badge)
 
 <!-- Community Badges -->
 ![GitHub stars](https://img.shields.io/github/stars/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub forks](https://img.shields.io/github/forks/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub issues](https://img.shields.io/github/issues/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub last commit](https://img.shields.io/github/last-commit/hiall-fyi/tado_ce?style=for-the-badge&logo=github)
@@ -80,33 +80,17 @@ Full climate, AC, and hot water control with timer support, geofencing, presence
 
 **Tado CE Exclusive:**
 
-| Category | Feature | Description |
-|----------|---------|-------------|
-| **API Management** | Real API Rate Limit | Actual usage from Tado API headers, not estimates |
-| | Reset Time Detection | Automatically detects when your rate limit resets |
-| | Dynamic Limit Detection | Auto-detects your limit (100/5000/20000) |
-| | API Call History | Track all API calls with configurable retention |
-| | Test Mode | Simulate 100 call limit for testing |
-| **Smart Polling** | Day/Night Polling | More frequent during day, less at night to save API calls |
-| | Customizable Intervals | Configure day/night hours and custom polling intervals |
-| | Optional Sensors | Toggle Weather/Mobile/Home State on/off to save API calls |
-| **Smart Comfort** | Analytics | Heating/cooling rates, time-to-target, efficiency (opt-in) |
-| | Preheat Advisor | Suggest optimal preheat start time based on historical patterns |
-| | Schedule Sensors | Next schedule time and temperature per zone |
-| **Heating Cycle** | Thermal Inertia | Automatically measures delay before temperature rises (always enabled) |
-| | Heating Rate Analysis | Calculates °C/min heating rate from historical cycles |
-| | Preheat Estimates | Predicts time to reach target based on current temperature |
-| | Confidence Scoring | Reliability indicator (0-100%) based on data quality |
-| **Environment** | Mold Risk | Per-zone mold risk indicator (always enabled) |
-| | Comfort Level | Adaptive comfort sensor using ASHRAE 55 model (always enabled) |
-| **Enhanced Controls** | Immediate Refresh | Dashboard updates immediately after user actions |
-| | Smart Boost | One-tap boost with intelligent duration based on heating rate |
-| | Enhanced Hot Water | AUTO/HEAT/OFF modes with timer presets (30/60/90 min) |
-| | Schedule Calendar | View heating schedules as calendar events (opt-in) |
-| | Boiler Flow Temp | Auto-detected sensor for OpenTherm systems |
-| **Architecture** | Zone-Based Devices | Each zone as separate device with cleaner entity names |
-| | Multi-Home Selection | Select which home to configure during setup |
-| | Full Async | Non-blocking API calls for better responsiveness |
+Tado CE provides comprehensive smart climate control with:
+
+- **API Management** - Real-time rate limit tracking, reset time detection, call history, test mode
+- **Smart Polling** - Adaptive day/night polling, customizable intervals, optional sensors
+- **Thermal Analytics** - Heating rate analysis, preheat estimates, thermal inertia, confidence scoring
+- **Smart Comfort** - Historical patterns, preheat advisor, schedule sensors, AI recommendations
+- **Enhanced Controls** - Smart boost, hot water timer, immediate refresh, temperature offset
+- **Environment Monitoring** - Mold risk assessment, comfort level tracking
+- **Optional Features** - Schedule calendar, boiler flow temperature, device tracking, home state sync
+
+See [FEATURES_GUIDE.md](FEATURES_GUIDE.md) for detailed documentation, configuration instructions, and usage scenarios for all features.
 
 ---
 
@@ -114,58 +98,14 @@ Full climate, AC, and hot water control with timer support, geofencing, presence
 
 Access via **Settings > Devices & Services > Tado CE > gear icon**.
 
-<details>
-<summary><strong>Features</strong></summary>
+Tado CE offers extensive configuration options for:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| Enable Weather Sensors | Off | Outside temp, solar intensity, weather state. Saves 1 API call/sync when disabled |
-| Enable Mobile Device Tracking | Off | Device tracker entities. Saves 1 API call/full sync when disabled |
-| Enable Home State Sync | Off | Home/away presence. Required for Away Mode switch and presets |
-| Enable Temperature Offset Attribute | Off | Adds `offset_celsius` to climate entities (1 API call/device every 6h) |
-| Enable Schedule Calendar | Off | Calendar entities showing heating schedules |
-| Enable Smart Comfort Analytics | Off | Heating rate, cooling rate, time-to-target, efficiency, preheat advisor, schedule sensors |
-| API History Retention | 14 d | Days to keep API call history (0 = forever) |
+- **Features** - Enable/disable optional sensors and analytics (Weather, Mobile Tracking, Smart Comfort, Schedule Calendar)
+- **Polling Schedule** - Customize day/night polling intervals and refresh delays
+- **Smart Comfort** - Configure outdoor temperature source, comfort mode, and history retention
+- **Experimental** - Hot water timer duration, test mode for API limit simulation
 
-</details>
-
-<details>
-<summary><strong>Polling Schedule</strong></summary>
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| Day Start Hour | 7 | When "day" period starts (0-23) |
-| Night Start Hour | 23 | When "night" period starts (0-23). Set Day = Night for uniform 24/7 polling |
-| Custom Day Interval | Empty | Override smart polling with fixed interval (1-1440 min) |
-| Custom Night Interval | Empty | Override smart polling with fixed interval (1-1440 min) |
-| Refresh Debounce Delay | 15 s | Delay before refreshing after user actions (1-60 s) |
-| Sync Mobile Devices Frequently | Off | Mobile devices sync every quick sync instead of only during full sync (every 6 h) |
-
-When custom intervals are not set, Tado CE uses smart polling that automatically adjusts based on your API quota.
-
-</details>
-
-<details>
-<summary><strong>Smart Comfort Settings</strong></summary>
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| Outdoor Temperature Entity | Empty | External weather sensor for more accurate outdoor temp |
-| Smart Comfort Mode | None | Temperature compensation: None / Light (±0.5°C) / Moderate (±1.0°C) / Aggressive (±2.0°C) |
-| Use Feels Like Temperature | Off | Use "feels like" instead of actual temperature for compensation |
-| Smart Comfort History Days | 7 | Days of history for heating rate calculations (1-30) |
-
-</details>
-
-<details>
-<summary><strong>Experimental</strong></summary>
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| Hot Water Timer Duration | 60 min | Duration when HEAT mode is activated (5-1440 min) |
-| Enable Test Mode | Off | Simulates 100 API call limit for testing |
-
-</details>
+See [FEATURES_GUIDE.md](FEATURES_GUIDE.md) for detailed configuration guides and usage scenarios based on your setup (low quota, high quota, mixed zones, OpenTherm boiler, etc.).
 
 **Note**: Changes take effect immediately without restart.
 
@@ -315,10 +255,11 @@ For other issues, check logs at **Settings > System > Logs** (filter by "tado_ce
 
 | Document | Description |
 |----------|-------------|
+| [FEATURES_GUIDE.md](FEATURES_GUIDE.md) | Complete guide to all features, sensors, configuration, and usage scenarios |
 | [ENTITIES.md](ENTITIES.md) | Complete list of all sensors, switches, and controls |
 | [API_REFERENCE.md](API_REFERENCE.md) | API call types, optimization tips, troubleshooting |
 | [ROADMAP.md](ROADMAP.md) | Planned features, ideas, and known limitations |
-| [RELEASE_CREDITS.md](RELEASE_CREDITS.md) | Community contributors and acknowledgments |
+| [RELEASE_CREDITS.md](RELEASE_CREDITS.md) | Community contributors |
 | [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
 
 ## External Resources
@@ -369,7 +310,7 @@ Contributions welcome!
 
 ---
 
-**Version**: 1.10.0 | **Last Updated**: TBD | **Tested On**: Home Assistant 2026.1.3
+**Version**: 2.0.0 | **Last Updated**: 2026-02-08 | **Tested On**: Home Assistant 2026.1.3
 
 ---
 

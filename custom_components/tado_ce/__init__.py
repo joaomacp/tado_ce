@@ -1179,9 +1179,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.helpers.event import async_track_time_interval
     from datetime import timedelta
     
+    def _schedule_cleanup(now):
+        """Schedule cleanup in event loop from time interval callback."""
+        hass.loop.call_soon_threadsafe(
+            lambda: hass.async_create_task(cleanup_entity_freshness())
+        )
+    
     cleanup_cancel = async_track_time_interval(
         hass,
-        lambda now: hass.async_create_task(cleanup_entity_freshness()),
+        _schedule_cleanup,
         timedelta(minutes=5)
     )
     hass.data[DOMAIN]['freshness_cleanup_cancel'] = cleanup_cancel
