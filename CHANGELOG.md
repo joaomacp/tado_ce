@@ -2,7 +2,7 @@
 
 All notable changes to Tado CE will be documented in this file.
 
-## [2.0.0] - TBD
+## [2.0.0] - 2026-02-09
 
 **Smart Polling, Mold Risk Enhancement & Thermal Analytics** - Adaptive polling, surface temperature calculation, and unified thermal analysis.
 

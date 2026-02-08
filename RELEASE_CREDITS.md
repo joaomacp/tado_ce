@@ -4,7 +4,7 @@
 
 ---
 
-## v2.0.0 (TBD) - Smart Polling, Mold Risk Enhancement & Thermal Analytics
+## v2.0.0 (2026-02-09) - Smart Polling, Mold Risk Enhancement & Thermal Analytics
 
 ### Feature Ideas & Suggestions
 

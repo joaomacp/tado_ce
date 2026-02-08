@@ -13,6 +13,16 @@ New sensors automatically created for all HEATING zones with TRV devices:
 - **Heating Acceleration** (`sensor.{zone}_heating_acceleration`): Rate of change in heating speed
 - **Approach Factor** (`sensor.{zone}_approach_factor`): Deceleration near target
 
+### API Monitoring Sensors
+New sensors for tracking API sync and polling:
+- **Next Sync** (`sensor.tado_ce_next_sync`): Next API sync time with countdown
+- **Polling Interval** (`sensor.tado_ce_polling_interval`): Current polling interval with source
+- **Call History** (`sensor.tado_ce_call_history`): API call history with statistics
+- **API Call Breakdown** (`sensor.tado_ce_api_call_breakdown`): API call breakdown by endpoint type
+
+### Preheat Now Binary Sensor
+- **Preheat Now** (`binary_sensor.{zone}_preheat_now`): Time to start preheating (requires Smart Comfort)
+
 ### Smart Polling
 - **Adaptive polling interval**: Automatically adjusts based on remaining API quota
 - **Universal quota support**: Works with any API tier (100, 200, 500, 5000, 20000+)
@@ -21,6 +31,22 @@ New sensors automatically created for all HEATING zones with TRV devices:
 ### Enhanced Mold Risk
 - **Surface temperature calculation**: Uses outdoor temp + window U-value for accurate cold spot detection
 - **Window type config**: Single Pane, Double Pane (default), Triple Pane, Passive House
+
+### Deprecated Sensors (Removed)
+The following Smart Comfort sensors were removed and replaced by Thermal Analytics:
+- `sensor.{zone}_heating_rate` → Use `sensor.{zone}_avg_heating_rate` (Thermal Analytics)
+- `sensor.{zone}_cooling_rate` → No direct replacement (heat loss analysis)
+- `sensor.{zone}_heating_efficiency` → Use `sensor.{zone}_analysis_confidence` (Thermal Analytics)
+- `sensor.{zone}_time_to_target` → Use `sensor.{zone}_preheat_time` (Thermal Analytics)
+
+---
+
+## 📋 v1.9.4 Changes
+
+### Boost Buttons (Heating Zones)
+New quick-access boost buttons for all HEATING zones:
+- **Boost Button** (`button.{zone}_boost`): Boost heating to 25°C for 30 minutes (mimics official Tado app)
+- **Smart Boost Button** (`button.{zone}_smart_boost`): Calculated duration based on heating rate data
 
 ---
 
@@ -55,6 +81,13 @@ Enable in Options → Features → "Enable Smart Comfort Analytics":
 
 ---
 
+## 📋 v1.8.3 Changes
+
+### Hub Buttons
+- **Refresh AC Capabilities Button** (`button.tado_ce_refresh_ac_capabilities`): Manually refresh AC capabilities cache (AC zones only)
+
+---
+
 ## 📋 v1.8.0 Changes
 
 ### Schedule Calendar (Optional)
@@ -66,6 +99,13 @@ Enable in Options → Features → "Enable Smart Comfort Analytics":
 ### API Reset Sensor Enhancements
 - **New `reset_at` attribute**: Shows when next reset will happen (local time)
 - **New `last_reset` attribute**: Shows when last reset happened (local time)
+
+---
+
+## 📋 v1.5.3 Changes
+
+### Hub Buttons
+- **Resume All Schedules Button** (`button.tado_ce_resume_all_schedules`): Delete all zone overlays and return to schedules
 
 ---
 
@@ -126,6 +166,30 @@ Enable in Options → Features → "Enable Smart Comfort Analytics":
 | `button.tado_ce_refresh_ac_capabilities` | Button | Refresh AC capabilities cache (v1.8.3, AC zones only) | 1 per AC zone |
 
 **Note (v1.8.3):** The Refresh AC Capabilities button only appears if you have AC zones. Use it to refresh cached capabilities after AC firmware updates or for troubleshooting.
+
+---
+
+## Per Zone - Boost Buttons (v1.9.4)
+
+Quick-access boost buttons for heating zones:
+
+| Entity | Type | Description | API Calls |
+|--------|------|-------------|-----------|
+| `button.{zone}_boost` | Button | Boost heating to 25°C for 30 minutes | 1 per press |
+| `button.{zone}_smart_boost` | Button | Smart boost with calculated duration based on heating rate | 1 per press |
+
+**Boost Button:**
+- Sets zone to maximum temperature (25°C)
+- Fixed 30-minute timer
+- Automatically resumes schedule after timer expires
+- Mimics official Tado app boost functionality
+
+**Smart Boost Button:**
+- Uses heating rate data to calculate optimal boost duration
+- Target: Schedule's next target temperature (or current + 3°C if unavailable)
+- Duration: `(target - current) / heating_rate`
+- Capped between 15 minutes and 3 hours
+- Requires Smart Comfort Analytics or Thermal Analytics for heating rate data
 
 ---
 
