@@ -33,6 +33,7 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed threading issue in entity freshness cleanup** - Changed cleanup scheduler to use `hass.loop.call_soon_threadsafe()` to properly schedule tasks from executor thread, eliminating "hass.async_create_task from a thread" errors
 
 ### Code Quality Improvements
+- **Fixed all blocking I/O in async context** - All file operations now properly use async_add_executor_job or aiofiles
 - **Improved error handling** - File loading now uses specific exception handling (FileNotFoundError, PermissionError, JSONDecodeError) instead of generic Exception catching
 - **Added coordinator availability logging** - Warning logged when TRV zones can't create thermal analytics sensors due to coordinator unavailability
 - **Sequence number overflow protection** - Global sequence counter resets at sys.maxsize to prevent memory issues in long-running instances
@@ -40,6 +41,8 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed setup timeout issue** - Changed cleanup task from blocking while loop to proper Home Assistant timer pattern using async_track_time_interval
 
 ### Setup & Polish
+- **Entity Descriptions** - All sensors and binary sensors now include helpful descriptions visible in HA entity info panel ([#91](https://github.com/hiall-fyi/tado_ce/issues/91))
+- **Removed 'Tado CE' prefix from entity names** - Hub sensors now use cleaner names (e.g., 'API Usage' instead of 'Tado CE API Usage')
 - **Auto-assign areas to zone devices** - Automatically matches zone names to Home Assistant areas during setup using fuzzy matching (70% confidence threshold). Skips zones that already have areas assigned. ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
 
 ### Technical Changes

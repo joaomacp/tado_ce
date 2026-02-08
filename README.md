@@ -83,7 +83,7 @@ Full climate, AC, and hot water control with timer support, geofencing, presence
 Tado CE provides comprehensive smart climate control with:
 
 - **API Management** - Real-time rate limit tracking, reset time detection, call history, test mode, sync monitoring
-- **Smart Polling** - Adaptive day/night polling, customizable intervals, optional sensors
+- **Smart Polling** - Adaptive real-time polling based on remaining API quota, custom intervals, monitoring sensors
 - **Thermal Analytics** - Heating rate analysis, preheat estimates, thermal inertia, confidence scoring
 - **Smart Comfort** - Historical patterns, preheat advisor, schedule sensors, AI recommendations
 - **Enhanced Controls** - Smart boost, hot water timer, immediate refresh, temperature offset
@@ -122,7 +122,7 @@ Quick overview of entities created by Tado CE:
 - **Hot Water**: Water heater with AUTO/HEAT/OFF modes, timer buttons (30/60/90 min)
 - **Switches**: Child lock, early start per zone
 
-**New in v1.12.0**: Next/Last Sync sensors, Polling Interval sensor, Call History sensor - no templates required!
+**New in v2.0.0**: Next/Last Sync sensors, Polling Interval sensor, Call History sensor, API Call Breakdown sensor - no templates required!
 
 ---
 
@@ -145,28 +145,35 @@ All services available in **Developer Tools > Services** with full parameter doc
 
 ## Smart Polling
 
-The integration automatically adjusts polling frequency based on your API limit and time of day.
+**v2.0.0**: Adaptive Smart Polling automatically adjusts polling frequency based on your remaining API quota in real-time.
 
-| API Limit | Day (7am-11pm) | Night (11pm-7am) | Est. Calls/Day |
-|-----------|----------------|------------------|----------------|
-| 100 | 30 min | 2 h | ~80 calls |
-| 1,000 | 15 min | 1 h | ~160 calls |
-| 5,000 | 10 min | 30 min | ~240 calls |
-| 20,000 | 5 min | 15 min | ~480 calls |
+### How It Works
 
-<details>
-<summary>100 Calls/Day Breakdown</summary>
+The integration calculates optimal polling interval by distributing remaining API calls evenly across time until reset:
 
-| Time Period | Duration | Interval | Syncs | Calls | Total |
-|-------------|----------|----------|-------|-------|-------|
-| Day (7am-11pm) | 16h | 30 min | 32 | 2 | 64 |
-| Night (11pm-7am) | 8h | 2h | 4 | 2 | 8 |
-| Full sync | 24h | 6h | 4 | 2 | 8 |
-| **Total** | | | | | **80** |
+```
+interval = (seconds_until_reset / remaining_calls) * safety_buffer
+```
 
-This leaves a 20% buffer for manual syncs or service calls.
+- **Safety Buffer**: 10% reserve (uses 90% of remaining quota)
+- **Min Interval**: 5 minutes (prevent excessive polling)
+- **Max Interval**: 120 minutes (ensure reasonable updates)
+- **Universal**: Works with any API tier (100, 200, 500, 5000, 20000+)
 
-</details>
+### Custom Intervals
+
+You can override adaptive polling with fixed intervals:
+- **Custom Day Interval**: Fixed interval during day hours (7am-11pm default)
+- **Custom Night Interval**: Fixed interval during night hours (11pm-7am default)
+
+Configure in **Settings > Devices & Services > Tado CE > Configure > Polling Schedule**.
+
+### Monitoring
+
+New sensors in v2.0.0 let you monitor polling behavior:
+- `sensor.tado_ce_polling_interval` - Current interval with source (adaptive/custom/default)
+- `sensor.tado_ce_next_sync` - Next scheduled sync time with countdown
+- `sensor.tado_ce_call_history` - API call statistics and history
 
 ---
 

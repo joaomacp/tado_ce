@@ -39,7 +39,7 @@ New sensors automatically created for all HEATING zones with TRV devices:
 New sensors automatically created for all HEATING and AIR_CONDITIONING zones:
 - **Mold Risk Sensor** (`sensor.{zone}_mold_risk`): Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
   - **Attributes**: `temperature`, `humidity`, `dew_point`, `temperature_source` (room/surface), `outdoor_temperature`, `surface_temperature`
-  - **v1.11.0**: Enhanced with 2-tier temperature calculation - uses outdoor temp + window U-value to estimate cold spot temperature at window edges (Tier 1), or falls back to room temperature (Tier 2)
+  - **v2.0.0**: Enhanced with 2-tier temperature calculation - uses outdoor temp + window U-value to estimate cold spot temperature at window edges (Tier 1), or falls back to room temperature (Tier 2)
 - **Comfort Level Sensor** (`sensor.{zone}_comfort_level`): Adaptive comfort level (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix)
 
 ### Smart Comfort Analytics (Opt-in)
@@ -165,10 +165,10 @@ Global sensors for the Tado CE Hub device.
 | `sensor.tado_ce_token_status` | Diagnostic | Token status (valid/expired) |
 | `sensor.tado_ce_zones_count` | Diagnostic | Number of zones configured |
 | `sensor.tado_ce_last_sync` | Diagnostic | Last successful sync timestamp |
-| `sensor.tado_ce_next_sync` | Diagnostic | Next scheduled sync timestamp (v1.12.0) |
-| `sensor.tado_ce_polling_interval` | Diagnostic | Current polling interval in minutes (v1.12.0) |
-| `sensor.tado_ce_call_history` | Diagnostic | API call history with statistics (v1.12.0) |
-| `sensor.tado_ce_api_call_breakdown` | Diagnostic | API call breakdown by endpoint type (v1.12.0) |
+| `sensor.tado_ce_next_sync` | Diagnostic | Next scheduled sync timestamp (v2.0.0) |
+| `sensor.tado_ce_polling_interval` | Diagnostic | Current polling interval in minutes (v2.0.0) |
+| `sensor.tado_ce_call_history` | Diagnostic | API call history with statistics (v2.0.0) |
+| `sensor.tado_ce_api_call_breakdown` | Diagnostic | API call breakdown by endpoint type (v2.0.0) |
 
 ### API Reset Sensor Attributes (v1.8.0)
 
@@ -182,14 +182,14 @@ Global sensors for the Tado CE Hub device.
 | `next_poll` | `2026-01-26 15:30:00` | Next scheduled poll time |
 | `current_interval_minutes` | `30` | Current polling interval |
 
-### Last Sync Sensor Attributes (v1.12.0)
+### Last Sync Sensor Attributes (v2.0.0)
 
 | Attribute | Example | Description |
 |-----------|---------|-------------|
 | `time_ago` | `5 minutes ago` | Human-readable time since last sync |
 | `sync_status` | `active` | Sync status (active/stale/unknown) |
 
-### Next Sync Sensor Attributes (v1.12.0)
+### Next Sync Sensor Attributes (v2.0.0)
 
 | Attribute | Example | Description |
 |-----------|---------|-------------|
@@ -197,13 +197,13 @@ Global sensors for the Tado CE Hub device.
 | `polling_interval_seconds` | `600` | Polling interval in seconds |
 | `polling_interval_human` | `10 minutes` | Human-readable polling interval |
 
-### Polling Interval Sensor Attributes (v1.12.0)
+### Polling Interval Sensor Attributes (v2.0.0)
 
 | Attribute | Example | Description |
 |-----------|---------|-------------|
 | `interval_source` | `custom` | Interval source (custom/adaptive/default) |
 
-### Call History Sensor Attributes (v1.12.0)
+### Call History Sensor Attributes (v2.0.0)
 
 | Attribute | Example | Description |
 |-----------|---------|-------------|
@@ -215,7 +215,7 @@ Global sensors for the Tado CE Hub device.
 | `calls_today` | `245` | Total calls today (UTC day) |
 | `most_called_endpoint` | `zoneStates (1234 calls)` | Most frequently called endpoint |
 
-### API Call Breakdown Sensor Attributes (v1.12.0)
+### API Call Breakdown Sensor Attributes (v2.0.0)
 
 | Attribute | Example | Description |
 |-----------|---------|-------------|
@@ -291,7 +291,7 @@ For each zone, you get these sensors:
 | `sensor.{zone}_battery` | State | Battery status (NORMAL/LOW) |
 | `sensor.{zone}_connection` | State | Connection (Online/Offline) |
 
-### v1.12.0: Thermal Analytics Sensors (HEATING zones only)
+### v2.0.0: Thermal Analytics Sensors (HEATING zones only)
 
 Automatically created for all HEATING zones to provide improved preheat timing estimates with first-order and second-order thermal analysis:
 

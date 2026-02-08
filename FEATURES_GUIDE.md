@@ -41,6 +41,10 @@ Tado enforces API rate limits (100-20,000 calls/day depending on your plan). The
 | `sensor.tado_ce_api_limit` | calls | Your daily API call limit |
 | `sensor.tado_ce_api_remaining` | calls | Remaining calls until reset |
 | `sensor.tado_ce_api_reset` | timestamp | When your limit resets |
+| `sensor.tado_ce_next_sync` | timestamp | Next scheduled API sync time (v2.0.0) |
+| `sensor.tado_ce_polling_interval` | minutes | Current polling interval (v2.0.0) |
+| `sensor.tado_ce_call_history` | count | API call history with statistics (v2.0.0) |
+| `sensor.tado_ce_api_call_breakdown` | text | API call breakdown by endpoint type (v2.0.0) |
 
 ### Configuration
 

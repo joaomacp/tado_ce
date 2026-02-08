@@ -6,11 +6,11 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v1.11.0 - Smart Polling & Environment Sensors
+## v2.0.0 - Smart Polling, Mold Risk Enhancement & Thermal Analytics
 
-Adaptive polling and enhanced mold risk assessment.
+Major release with adaptive polling, enhanced mold risk, thermal analytics, and API monitoring.
 
-### ✅ Completed for v1.11.0
+### ✅ Completed for v2.0.0 (includes original v1.11.0 scope)
 
 **Adaptive Smart Polling** ([#89](https://github.com/hiall-fyi/tado_ce/issues/89)):
 - [x] **Real-time adaptive intervals** - Calculate polling based on remaining quota and time
@@ -18,7 +18,7 @@ Adaptive polling and enhanced mold risk assessment.
 - [x] **Self-healing behavior** - Automatically adapts to manual calls and HA restarts
 - [x] **Transparent logging** - Full visibility into interval calculations
 
-**Note**: Originally planned for v2.0.0, but accelerated to v1.11.0 based on user validation.
+**Note**: Originally planned for v2.0.0, but included in v2.0.0 based on user validation.
 
 **Enhanced Mold Risk Assessment** ([#90](https://github.com/hiall-fyi/tado_ce/issues/90)):
 - [x] **U-value estimation** - Calculate window surface temperature from outdoor temp and window type
@@ -30,11 +30,7 @@ Adaptive polling and enhanced mold risk assessment.
 
 ---
 
-## v2.0.0 - Multiple Homes Enabled
-
-Major release enabling full multi-home support.
-
-### ✅ Completed for v2.0.0
+### ✅ Multi-Home Infrastructure (v2.0.0)
 
 **Multi-Home Infrastructure** (foundation for future multi-home support):
 - [x] **Per-home data file naming** - `get_data_file(base_name, home_id)` in const.py
@@ -43,10 +39,13 @@ Major release enabling full multi-home support.
 
 ### 🔲 Remaining for v2.0.0
 
-**API Monitoring Enhancements** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65)):
-- [ ] **Call History Sensor** - Separate sensor for Activity card visualization
-- [ ] **Call Priority System** - Configurable weighting for different call types
-- [ ] **Granular API Call Options** - Enable/disable optional call types in Advanced settings
+**API Monitoring Enhancements** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65), [Discussion #86](https://github.com/hiall-fyi/tado_ce/discussions/86)):
+- [x] **Next Sync Sensor** - Shows next API sync time with countdown
+- [x] **Polling Interval Sensor** - Shows current polling interval with source
+- [x] **Call History Sensor** - API call history with statistics (calls_per_hour, calls_today, most_called_endpoint)
+- [x] **API Call Breakdown Sensor** - Breakdown by endpoint type with 24h/today/total counts
+- [ ] **Call Priority System** - Configurable weighting for different call types (Future)
+- [ ] **Granular API Call Options** - Enable/disable optional call types in Advanced settings (Future)
 
 **Multi-Home Support:**
 - [ ] **Multi-home preference in config flow** - New users asked "Plan to add multiple homes?" to enable home_id prefix
