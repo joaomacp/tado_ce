@@ -1140,14 +1140,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         
         return True
     
+    async def cleanup_entity_freshness() -> None:
+        """Periodic cleanup of expired entity freshness entries.
+        
+        Prevents memory leak from entities that are always fresh or removed.
+        Called every 5 minutes by async_track_time_interval.
+        """
+        async with freshness_lock:
+            now = time.time()
+            expired = [
+                entity_id for entity_id, timestamp in entity_freshness.items()
+                if now - timestamp > 60  # Remove entries older than 1 minute
+            ]
+            for entity_id in expired:
+                del entity_freshness[entity_id]
+            if expired:
+                _LOGGER.debug(f"Cleaned up {len(expired)} expired entity freshness entries")
+    
     def get_next_sequence() -> int:
-        """Get next sequence number for tracking data freshness."""
+        """Get next sequence number for tracking data freshness.
+        
+        Includes overflow protection - resets at sys.maxsize to prevent
+        memory issues in long-running instances.
+        """
+        import sys
         global_sequence[0] += 1
+        # Overflow protection: reset at sys.maxsize
+        if global_sequence[0] >= sys.maxsize:
+            _LOGGER.info("Sequence number reached max, resetting to 0")
+            global_sequence[0] = 0
         return global_sequence[0]
     
     hass.data[DOMAIN]['mark_entity_fresh'] = mark_entity_fresh
     hass.data[DOMAIN]['is_entity_fresh'] = is_entity_fresh
     hass.data[DOMAIN]['get_next_sequence'] = get_next_sequence
+    
+    # Start periodic cleanup for entity freshness dict (every 5 minutes)
+    from homeassistant.helpers.event import async_track_time_interval
+    from datetime import timedelta
+    
+    cleanup_cancel = async_track_time_interval(
+        hass,
+        lambda now: hass.async_create_task(cleanup_entity_freshness()),
+        timedelta(minutes=5)
+    )
+    hass.data[DOMAIN]['freshness_cleanup_cancel'] = cleanup_cancel
     
     # Sync configuration to config.json for tado_api.py
     await config_manager.async_sync_all_to_config_json()
@@ -2076,6 +2113,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if cancel_func:
             cancel_func()
             _LOGGER.debug("Cancelled polling timer")
+    
+    # Cancel freshness cleanup timer if active
+    if DOMAIN in hass.data and 'freshness_cleanup_cancel' in hass.data[DOMAIN]:
+        cleanup_cancel = hass.data[DOMAIN]['freshness_cleanup_cancel']
+        if cleanup_cancel:
+            cleanup_cancel()
+            _LOGGER.debug("Cancelled freshness cleanup timer")
     
     # Clean up async client to prevent memory leak
     from .async_api import cleanup_async_client, cleanup_tracker

@@ -151,15 +151,18 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                     # v1.11.0: Thermal Analytics sensors (only for zones with TRV devices)
                     # SU02 (Smart Thermostat) doesn't have TRV, so no thermal analytics
                     heating_cycle_coordinator = hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
-                    if heating_cycle_coordinator and zone_id in zones_with_trv:
-                        sensors.extend([
-                            TadoThermalInertiaSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
-                            TadoAvgHeatingRateSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
-                            TadoPreheatTimeSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
-                            TadoAnalysisConfidenceSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
-                            TadoHeatingAccelerationSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
-                            TadoApproachFactorSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
-                        ])
+                    if zone_id in zones_with_trv:
+                        if heating_cycle_coordinator:
+                            sensors.extend([
+                                TadoThermalInertiaSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                                TadoAvgHeatingRateSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                                TadoPreheatTimeSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                                TadoAnalysisConfidenceSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                                TadoHeatingAccelerationSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                                TadoApproachFactorSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
+                            ])
+                        else:
+                            _LOGGER.warning(f"Zone {zone_name} has TRV but HeatingCycleCoordinator not available - thermal analytics sensors not created")
                     # v1.9.0: Smart Comfort sensors (opt-in)
                     # v1.11.0: Removed TadoThermalRateSensor, TadoTimeToTargetSensor (replaced by heating cycle analysis)
                     if config_manager.get_smart_comfort_enabled():
@@ -409,11 +412,30 @@ class TadoApiUsageSensor(SensorEntity):
                     except Exception:
                         pass  # Keep original timestamp if conversion fails
                     self._call_history.append(call_copy)
+            except FileNotFoundError:
+                _LOGGER.debug("API call history file not found - first run or migration pending")
+                self._call_history = []
+            except PermissionError:
+                _LOGGER.warning("Permission denied reading API call history file")
+                self._call_history = []
+            except json.JSONDecodeError as e:
+                _LOGGER.error(f"Invalid JSON in API call history file: {e}")
+                self._call_history = []
             except Exception as e:
                 _LOGGER.debug(f"Failed to load call history: {e}")
                 self._call_history = []
                 
-        except Exception:
+        except FileNotFoundError:
+            _LOGGER.debug("Ratelimit file not found - first run or migration pending")
+            self._attr_available = False
+        except PermissionError:
+            _LOGGER.error("Permission denied reading ratelimit file")
+            self._attr_available = False
+        except json.JSONDecodeError as e:
+            _LOGGER.error(f"Invalid JSON in ratelimit file: {e}")
+            self._attr_available = False
+        except Exception as e:
+            _LOGGER.error(f"Unexpected error loading ratelimit data: {e}", exc_info=True)
             self._attr_available = False
 
 class TadoApiResetSensor(SensorEntity):
