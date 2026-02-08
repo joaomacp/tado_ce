@@ -160,6 +160,14 @@ Global sensors for the Tado CE Hub device.
 | `sensor.tado_ce_home_id` | Diagnostic | Your Tado home ID |
 | `sensor.tado_ce_api_usage` | Sensor | API calls used (e.g. "142/5000") |
 | `sensor.tado_ce_api_reset` | Sensor | Time until rate limit resets (e.g. "5h 30m") |
+| `sensor.tado_ce_api_limit` | Diagnostic | Your daily API call limit |
+| `sensor.tado_ce_api_status` | Diagnostic | API status (ok/warning/rate_limited) |
+| `sensor.tado_ce_token_status` | Diagnostic | Token status (valid/expired) |
+| `sensor.tado_ce_zones_count` | Diagnostic | Number of zones configured |
+| `sensor.tado_ce_last_sync` | Diagnostic | Last successful sync timestamp |
+| `sensor.tado_ce_next_sync` | Diagnostic | Next scheduled sync timestamp (v1.12.0) |
+| `sensor.tado_ce_polling_interval` | Diagnostic | Current polling interval in minutes (v1.12.0) |
+| `sensor.tado_ce_call_history` | Diagnostic | API call history with statistics (v1.12.0) |
 
 ### API Reset Sensor Attributes (v1.8.0)
 
@@ -173,11 +181,38 @@ Global sensors for the Tado CE Hub device.
 | `next_poll` | `2026-01-26 15:30:00` | Next scheduled poll time |
 | `current_interval_minutes` | `30` | Current polling interval |
 
-| `sensor.tado_ce_api_limit` | Diagnostic | Your daily API call limit |
-| `sensor.tado_ce_api_status` | Diagnostic | API status (ok/warning/rate_limited) |
-| `sensor.tado_ce_token_status` | Diagnostic | Token status (valid/expired) |
-| `sensor.tado_ce_zones_count` | Diagnostic | Number of zones configured |
-| `sensor.tado_ce_last_sync` | Diagnostic | Last successful sync timestamp |
+### Last Sync Sensor Attributes (v1.12.0)
+
+| Attribute | Example | Description |
+|-----------|---------|-------------|
+| `time_ago` | `5 minutes ago` | Human-readable time since last sync |
+| `sync_status` | `active` | Sync status (active/stale/unknown) |
+
+### Next Sync Sensor Attributes (v1.12.0)
+
+| Attribute | Example | Description |
+|-----------|---------|-------------|
+| `countdown` | `in 5 minutes` | Human-readable countdown to next sync |
+| `polling_interval_seconds` | `600` | Polling interval in seconds |
+| `polling_interval_human` | `10 minutes` | Human-readable polling interval |
+
+### Polling Interval Sensor Attributes (v1.12.0)
+
+| Attribute | Example | Description |
+|-----------|---------|-------------|
+| `interval_source` | `custom` | Interval source (custom/adaptive/default) |
+
+### Call History Sensor Attributes (v1.12.0)
+
+| Attribute | Example | Description |
+|-----------|---------|-------------|
+| `history` | `[...]` | Array of recent API calls (last 100) |
+| `history_period_days` | `14` | Number of days of history stored |
+| `oldest_call` | `2026-01-25 10:00:00` | Timestamp of oldest call |
+| `newest_call` | `2026-02-08 14:00:00` | Timestamp of newest call |
+| `calls_per_hour` | `15.2` | Average calls per hour (last 24h) |
+| `calls_today` | `245` | Total calls today (UTC day) |
+| `most_called_endpoint` | `zoneStates (1234 calls)` | Most frequently called endpoint |
 
 ## Weather Sensors
 

@@ -84,6 +84,9 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     sensors.append(TadoZoneCountSensor())
     sensors.append(TadoLastSyncSensor())
     
+    # API Monitoring Sensors (Discussion #86, Issue #65)
+    sensors.append(TadoApiCallBreakdownSensor())
+    
     # Boiler Flow Temperature sensor (Hub device - only if data available)
     # This requires OpenTherm connection between Tado and boiler
     if await hass.async_add_executor_job(_has_boiler_flow_temperature_data):
@@ -784,6 +787,131 @@ class TadoLastSyncSensor(SensorEntity):
                 self._attr_available = False
         except Exception:
             self._attr_available = False
+
+# ============ API Monitoring Sensors (Discussion #86, Issue #65) ============
+
+class TadoApiCallBreakdownSensor(SensorEntity):
+    """Sensor showing API call breakdown by type."""
+    
+    def __init__(self):
+        self._attr_name = "Tado CE API Call Breakdown"
+        self._attr_unique_id = "tado_ce_api_call_breakdown"
+        self._attr_icon = "mdi:chart-bar"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_device_info = get_hub_device_info()
+        self._attr_available = False
+        self._attr_native_value = None
+        self._breakdown_24h = {}
+        self._breakdown_today = {}
+        self._breakdown_total = {}
+        self._top_3_types = []
+        self._chart_data = []
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "breakdown_24h": self._breakdown_24h,
+            "breakdown_today": self._breakdown_today,
+            "breakdown_total": self._breakdown_total,
+            "top_3_types": self._top_3_types,
+            "chart_data": self._chart_data,
+        }
+    
+    def update(self):
+        try:
+            from datetime import datetime, timezone, timedelta
+            
+            # Load call history
+            history_data = load_api_call_history_file()
+            if not history_data:
+                self._attr_available = True
+                self._attr_native_value = "No data"
+                self._breakdown_24h = {}
+                self._breakdown_today = {}
+                self._breakdown_total = {}
+                self._top_3_types = []
+                self._chart_data = []
+                return
+            
+            # Flatten all calls from all dates
+            all_calls = []
+            for date_key, calls in history_data.items():
+                all_calls.extend(calls)
+            
+            if not all_calls:
+                self._attr_available = True
+                self._attr_native_value = "No data"
+                self._breakdown_24h = {}
+                self._breakdown_today = {}
+                self._breakdown_total = {}
+                self._top_3_types = []
+                self._chart_data = []
+                return
+            
+            # Calculate breakdown for last 24 hours
+            now = datetime.now(timezone.utc)
+            cutoff_24h = now - timedelta(hours=24)
+            breakdown_24h = {}
+            
+            for call in all_calls:
+                try:
+                    ts = datetime.fromisoformat(call["timestamp"])
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    
+                    if ts > cutoff_24h:
+                        type_name = call.get("type_name", "unknown")
+                        breakdown_24h[type_name] = breakdown_24h.get(type_name, 0) + 1
+                except Exception:
+                    continue
+            
+            self._breakdown_24h = breakdown_24h
+            
+            # Calculate breakdown for today (UTC day)
+            today_str = now.strftime("%Y-%m-%d")
+            breakdown_today = {}
+            today_calls = history_data.get(today_str, [])
+            
+            for call in today_calls:
+                type_name = call.get("type_name", "unknown")
+                breakdown_today[type_name] = breakdown_today.get(type_name, 0) + 1
+            
+            self._breakdown_today = breakdown_today
+            
+            # Calculate total breakdown (all history)
+            breakdown_total = {}
+            for call in all_calls:
+                type_name = call.get("type_name", "unknown")
+                breakdown_total[type_name] = breakdown_total.get(type_name, 0) + 1
+            
+            self._breakdown_total = breakdown_total
+            
+            # Find top 3 types (based on 24h data)
+            if breakdown_24h:
+                sorted_types = sorted(breakdown_24h.items(), key=lambda x: x[1], reverse=True)
+                self._top_3_types = [
+                    {"type": type_name, "count": count}
+                    for type_name, count in sorted_types[:3]
+                ]
+                
+                # Set state to most called type
+                self._attr_native_value = sorted_types[0][0]
+            else:
+                self._top_3_types = []
+                self._attr_native_value = "No data"
+            
+            # Format chart data for visualization (24h data)
+            self._chart_data = [
+                {"type": type_name, "count": count}
+                for type_name, count in sorted(breakdown_24h.items(), key=lambda x: x[1], reverse=True)
+            ]
+            
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.error(f"Failed to update API Call Breakdown sensor: {e}")
+            self._attr_available = False
+            self._attr_native_value = None
 
 # ============ Weather Sensors ============
 

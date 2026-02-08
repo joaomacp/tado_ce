@@ -97,6 +97,8 @@ async def async_assign_zone_areas(hass: HomeAssistant, home_id: str, zones_info:
     assigned_count = 0
     skipped_count = 0
     
+    _LOGGER.info(f"Tado CE: Checking {len(zones_info)} zones for area assignment")
+    
     for zone in zones_info:
         zone_id = str(zone.get('id'))
         zone_name = zone.get('name', f'Zone {zone_id}')
@@ -143,7 +145,7 @@ async def async_assign_zone_areas(hass: HomeAssistant, home_id: str, zones_info:
             f"({skipped_count} already assigned)"
         )
     else:
-        _LOGGER.debug(
+        _LOGGER.info(
             f"No zones auto-assigned to areas "
             f"({skipped_count} already assigned, {len(zones_info) - skipped_count} no match)"
         )

@@ -7,6 +7,14 @@ All notable changes to Tado CE will be documented in this file.
 **Smart Polling, Mold Risk Enhancement & Thermal Analytics** - Adaptive polling, surface temperature calculation, and unified thermal analysis.
 
 ### Features
+- **API Monitoring Sensors** - New sensors for tracking API sync and polling ([Discussion #86](https://github.com/hiall-fyi/tado_ce/discussions/86), [#65](https://github.com/hiall-fyi/tado_ce/issues/65))
+  - `sensor.tado_ce_next_sync` - Next API sync time with countdown
+  - `sensor.tado_ce_last_sync` - Last API sync time with time ago and sync status
+  - `sensor.tado_ce_polling_interval` - Current polling interval with source
+  - `sensor.tado_ce_call_history` - API call history with statistics
+  - `sensor.tado_ce_api_call_breakdown` - API call breakdown by type (zoneStates, weather, etc.) with 24h/today/total counts
+  - No templates required - build dashboards directly
+  - Compatible with Activity card for visualization
 - **Thermal Analytics** - Unified thermal analysis with first-order and second-order metrics
   - New sensors: `_thermal_inertia`, `_avg_heating_rate`, `_preheat_time`, `_analysis_confidence`, `_heating_acceleration`, `_approach_factor`
   - TRV-only: Thermal analytics only for zones with TRV devices (not SU02 Smart Thermostat)

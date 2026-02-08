@@ -82,7 +82,7 @@ Full climate, AC, and hot water control with timer support, geofencing, presence
 
 Tado CE provides comprehensive smart climate control with:
 
-- **API Management** - Real-time rate limit tracking, reset time detection, call history, test mode
+- **API Management** - Real-time rate limit tracking, reset time detection, call history, test mode, sync monitoring
 - **Smart Polling** - Adaptive day/night polling, customizable intervals, optional sensors
 - **Thermal Analytics** - Heating rate analysis, preheat estimates, thermal inertia, confidence scoring
 - **Smart Comfort** - Historical patterns, preheat advisor, schedule sensors, AI recommendations
@@ -115,12 +115,14 @@ See [FEATURES_GUIDE.md](FEATURES_GUIDE.md) for detailed configuration guides and
 
 Quick overview of entities created by Tado CE:
 
-- **Hub**: API usage/reset sensors, weather sensors, away mode switch, resume all schedules button
+- **Hub**: API usage/reset/sync sensors, weather sensors, away mode switch, resume all schedules button
 - **Per Zone**: Climate control, temperature/humidity, heating power, mode, battery, connection
 - **Environment**: Mold risk, comfort level (always enabled)
 - **Smart Comfort**: Heating/cooling rates, time-to-target, efficiency, preheat advisor, schedule sensors (opt-in)
 - **Hot Water**: Water heater with AUTO/HEAT/OFF modes, timer buttons (30/60/90 min)
 - **Switches**: Child lock, early start per zone
+
+**New in v1.12.0**: Next/Last Sync sensors, Polling Interval sensor, Call History sensor - no templates required!
 
 ---
 
