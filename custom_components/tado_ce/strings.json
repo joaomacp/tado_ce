@@ -120,6 +120,8 @@
               "schedule_calendar_enabled": "Schedule Calendar",
               "ufh_buffer_minutes": "UFH Buffer (minutes)",
               "ufh_zones": "UFH Zones",
+              "adaptive_preheat_enabled": "Adaptive Preheat",
+              "adaptive_preheat_zones": "Adaptive Preheat Zones",
               "hot_water_timer_duration": "Hot Water Timer Duration (minutes)",
               "test_mode_enabled": "Test Mode (100 API call limit)"
             },
@@ -127,6 +129,8 @@
               "schedule_calendar_enabled": "Display heating schedules as calendar entities (read-only)",
               "ufh_buffer_minutes": "Extra buffer time for underfloor heating systems (0-60 min). Adds to preheat time for UFH thermal lag.",
               "ufh_zones": "Select zones with underfloor heating. Leave empty to apply buffer to all zones.",
+              "adaptive_preheat_enabled": "Automatically start heating at recommended preheat time. Requires Smart Comfort to be enabled.",
+              "adaptive_preheat_zones": "Select zones for adaptive preheat. Leave empty to apply to all heating zones.",
               "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
               "test_mode_enabled": "Simulate post-grace period with 100 API call limit for testing"
             }

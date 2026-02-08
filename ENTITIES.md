@@ -4,16 +4,6 @@ Complete list of all entities created by Tado CE integration.
 
 ## 📋 v2.0.0 Changes
 
-### Entity Descriptions (UX Enhancement)
-All sensors and binary sensors now include helpful descriptions visible in Home Assistant's entity info panel:
-- **What it measures**: Clear explanation of what each sensor tracks
-- **How to interpret values**: Guidance on understanding sensor readings
-- **Context and usage**: When and why you might use this sensor
-
-**Implementation**: Descriptions appear automatically in the entity info panel (ℹ️ icon) for all ~30+ sensors and binary sensors. No configuration needed.
-
-**Reference**: Addresses Issue #91 - Makes Smart Comfort and other sensors more discoverable and easier to understand for new users.
-
 ### Thermal Analytics (TRV Zones Only)
 New sensors automatically created for all HEATING zones with TRV devices:
 - **Thermal Inertia** (`sensor.{zone}_thermal_inertia`): Delay before temperature starts rising
@@ -351,6 +341,31 @@ Turns ON when it's time to start preheating to reach target temperature by the s
 Configure in Options → Thermal Analytics:
 - "UFH Buffer (minutes)" - Extra lead time for underfloor heating (0-60 min)
 - "UFH Zones" - Select which zones have underfloor heating. Leave empty to apply buffer to all zones.
+
+### Adaptive Preheat (v2.0.0)
+
+Automatically triggers heating when `preheat_now` binary sensor turns ON. Replaces Tado's cloud-based Early Start with local, user-controlled automation.
+
+**How it works:**
+1. Monitors `preheat_now` binary sensors for enabled zones
+2. When sensor turns ON, sets heating overlay with target temperature from schedule
+3. Uses `NEXT_TIME_BLOCK` termination - overlay auto-clears when schedule starts
+4. Only triggers if current temperature is below target (with 0.5°C tolerance)
+
+**Configuration:**
+Enable in Options → Tado CE Exclusive:
+- "Enable Adaptive Preheat" - Master toggle
+- "Adaptive Preheat Zones" - Select which zones to enable (empty = all heating zones)
+
+**Requirements:**
+- Smart Comfort Analytics must be enabled (provides `preheat_now` sensors)
+- Zones must have valid schedules
+
+**Benefits over Tado Early Start:**
+- Local control - no cloud dependency
+- Uses your actual heating rate data (more accurate)
+- Configurable per-zone
+- Works with UFH buffer for slow-response heating systems
 
 **Note:** Entity naming changed in v1.2.0 - no "tado_ce_" prefix for zone entities.
 

@@ -1713,6 +1713,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Tado CE: Failed to initialize Heating Cycle Analysis: %s", e)
             # Continue without heating cycle analysis - non-critical feature
     
+    # v2.0.0: Initialize Adaptive Preheat Manager if enabled
+    if config_manager.get_adaptive_preheat_enabled():
+        try:
+            from .adaptive_preheat import async_setup_adaptive_preheat
+            await async_setup_adaptive_preheat(hass, config_manager)
+            _LOGGER.info("Tado CE: Adaptive Preheat enabled")
+        except Exception as e:
+            _LOGGER.error("Tado CE: Failed to initialize Adaptive Preheat: %s", e)
+            # Continue without adaptive preheat - non-critical feature
+    
     await hass.config_entries.async_forward_entry_setups(entry, platforms_to_load)
     
     # Auto-assign areas to zone devices (v2.0.0)
@@ -2233,6 +2243,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Clean up Smart Comfort manager (saves data before cleanup)
     from .smart_comfort import async_cleanup_smart_comfort_manager
     await async_cleanup_smart_comfort_manager(hass)
+    
+    # v2.0.0: Clean up Adaptive Preheat manager
+    from .adaptive_preheat import async_unload_adaptive_preheat
+    await async_unload_adaptive_preheat()
     
     # v1.11.0: Cancel heating cycle timeout check timer
     if DOMAIN in hass.data and 'heating_cycle_timeout_cancel' in hass.data[DOMAIN]:

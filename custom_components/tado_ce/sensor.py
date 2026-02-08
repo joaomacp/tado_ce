@@ -9,7 +9,6 @@ from typing import Optional
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
-    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import UnitOfTemperature, PERCENTAGE, EntityCategory

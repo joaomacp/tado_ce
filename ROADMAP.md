@@ -6,9 +6,9 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## v2.0.0 - Smart Polling, Mold Risk Enhancement & Thermal Analytics
+## v2.0.0 - Adaptive Polling, Thermal Analytics, Enhanced Mold Risk, Adaptive Preheat & API Monitoring
 
-Major release with adaptive polling, enhanced mold risk, thermal analytics, and API monitoring.
+Major release with adaptive polling, thermal analytics, enhanced mold risk, adaptive preheat, and API monitoring.
 
 ### ✅ All Completed
 
@@ -34,6 +34,7 @@ Major release with adaptive polling, enhanced mold risk, thermal analytics, and 
 - [x] Approach Factor Sensor - Shows deceleration near setpoint (%)
 - [x] Preheat Binary Sensor - `binary_sensor.{zone}_preheat_now` turns ON when it's time to start heating ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 - [x] UFH Slow Response Mode - Configurable buffer time for underfloor heating thermal lag ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
+- [x] Adaptive Preheat - Auto-trigger heating when preheat_now turns ON, uses NEXT_TIME_BLOCK termination ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 
 **API Monitoring** ([#65](https://github.com/hiall-fyi/tado_ce/issues/65), [Discussion #86](https://github.com/hiall-fyi/tado_ce/discussions/86)):
 - [x] Next Sync Sensor - Shows next API sync time with countdown
@@ -60,9 +61,6 @@ Features under consideration - need more community feedback or technical researc
 
 **API Management:**
 - **Call Priority System** - Configurable weighting for different call types (e.g., zoneStates every 10 min, weather every 30 min). Requires significant coordinator architecture changes. Low priority - current adaptive polling handles most use cases.
-
-**Heating Intelligence:**
-- **Turnkey Early Start Replacement** - Auto-trigger heating at recommended preheat time, stop when target reached or next schedule starts ([Discussion #72](https://github.com/hiall-fyi/tado_ce/discussions/72) - @thefern69)
 
 **Environment Sensors** ([#64](https://github.com/hiall-fyi/tado_ce/issues/64)):
 - **Indoor Air Quality (IAQ)** - Air quality score per zone (requires additional sensors)

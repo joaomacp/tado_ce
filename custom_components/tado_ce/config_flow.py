@@ -424,7 +424,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
             # Flatten tado_ce_exclusive section
             if 'tado_ce_exclusive' in user_input:
                 exclusive = user_input['tado_ce_exclusive']
-                for key in ['schedule_calendar_enabled', 'ufh_buffer_minutes', 'ufh_zones', 'hot_water_timer_duration', 'test_mode_enabled']:
+                for key in ['schedule_calendar_enabled', 'ufh_buffer_minutes', 'ufh_zones', 'adaptive_preheat_enabled', 'adaptive_preheat_zones', 'hot_water_timer_duration', 'test_mode_enabled']:
                     if key in exclusive:
                         processed_input[key] = exclusive[key]
             
@@ -504,6 +504,14 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                             NumberSelectorConfig(min=0, max=60, step=5, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
                         ),
                         vol.Optional('ufh_zones', default=options.get('ufh_zones', [])): SelectSelector(
+                            SelectSelectorConfig(
+                                options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
+                                multiple=True,
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
+                        vol.Optional('adaptive_preheat_enabled', default=options.get('adaptive_preheat_enabled', False)): BooleanSelector(),
+                        vol.Optional('adaptive_preheat_zones', default=options.get('adaptive_preheat_zones', [])): SelectSelector(
                             SelectSelectorConfig(
                                 options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
                                 multiple=True,

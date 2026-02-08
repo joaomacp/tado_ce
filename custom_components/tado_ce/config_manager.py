@@ -486,6 +486,59 @@ class ConfigurationManager:
         
         return window_type
     
+    def get_ufh_buffer_minutes(self) -> int:
+        """Get UFH (Underfloor Heating) buffer minutes.
+        
+        v2.0.0: Extra buffer time for UFH zones due to slow thermal response.
+        
+        Returns:
+            Buffer minutes (0-120, default 0 = disabled)
+        """
+        minutes = self._options.get('ufh_buffer_minutes', 0)
+        if isinstance(minutes, float):
+            minutes = int(minutes)
+        if isinstance(minutes, int) and 0 <= minutes <= 120:
+            return minutes
+        return 0
+    
+    def get_ufh_zones(self) -> list[str]:
+        """Get list of zone IDs configured as UFH zones.
+        
+        v2.0.0: Zones that should use UFH buffer for preheat calculations.
+        
+        Returns:
+            List of zone ID strings, empty list if none configured
+        """
+        zones = self._options.get('ufh_zones', [])
+        if isinstance(zones, list):
+            return [str(z) for z in zones]
+        return []
+    
+    def get_adaptive_preheat_enabled(self) -> bool:
+        """Check if Adaptive Preheat is enabled.
+        
+        v2.0.0: Automatically triggers heating when preheat_now sensor turns ON.
+        Replaces Tado's cloud-based Early Start with local automation.
+        
+        Returns:
+            True if Adaptive Preheat is enabled, False otherwise
+        """
+        return self._options.get('adaptive_preheat_enabled', False)
+    
+    def get_adaptive_preheat_zones(self) -> list[str]:
+        """Get list of zone IDs enabled for Adaptive Preheat.
+        
+        v2.0.0: Zones that should use Adaptive Preheat automation.
+        Empty list means all heating zones are enabled.
+        
+        Returns:
+            List of zone ID strings, empty list = all zones
+        """
+        zones = self._options.get('adaptive_preheat_zones', [])
+        if isinstance(zones, list):
+            return [str(z) for z in zones]
+        return []
+    
     def sync_all_to_config_json(self) -> None:
         """Sync all configuration values to config.json for tado_api.py to read.
         
