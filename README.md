@@ -122,7 +122,10 @@ Quick overview of entities created by Tado CE:
 - **Hot Water**: Water heater with AUTO/HEAT/OFF modes, timer buttons (30/60/90 min)
 - **Switches**: Child lock, early start per zone
 
-**New in v2.0.0**: Next/Last Sync sensors, Polling Interval sensor, Call History sensor, API Call Breakdown sensor - no templates required!
+**New in v2.0.0**: 
+- **API Monitoring Sensors**: Next/Last Sync, Polling Interval, Call History, API Call Breakdown - no templates required!
+- **Thermal Analytics**: Heating rate analysis, thermal inertia, preheat estimates with confidence scoring (TRV zones only)
+- **Quota Reserve Protection**: Automatically pauses polling when quota critically low (≤5% or ≤5 calls), reserves quota for manual operations
 
 ---
 
