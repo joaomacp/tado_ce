@@ -50,9 +50,6 @@ All notable changes to Tado CE will be documented in this file.
 - **Deprecated Sensor Cleanup** - Migration removes old sensors (`_thermal_rate`, `_cooling_rate`, `_heating_efficiency`, `_time_to_target`, etc.)
 - **Removed Legacy Files** - Deleted `tado_api.py` (replaced by `async_api.py`) and `error_handler.py`
 
-### Contributors
-Thanks to [@ChrisMarriott38](https://github.com/ChrisMarriott38) for professional testing and confirming the adaptive polling approach!
-
 ## [1.10.0] - 2026-02-05
 
 **Coordinator Race Condition Fix** - Complete architectural fix for climate entity flickering and state sync issues.
@@ -91,9 +88,6 @@ Previous versions attempted time-based optimistic windows, but couldn't handle:
 - **Faster UI response** - Optimistic updates provide immediate feedback
 - **Better multi-zone handling** - Independent freshness tracking per entity
 
-### Contributors
-Thanks to [@hapklaar](https://github.com/hapklaar), [@chinezbrun](https://github.com/chinezbrun), and [@neonsp](https://github.com/neonsp) for extensive testing, detailed logs, and patience through multiple iterations!
-
 ## [1.9.7] - 2026-02-04
 
 **Explicit Optimistic State Tracking** - Fixed flickering/wrong state preservation after mode changes.
@@ -113,9 +107,6 @@ Thanks to [@hapklaar](https://github.com/hapklaar), [@chinezbrun](https://github
 ### Root Cause Analysis
 v1.9.6's time-based optimistic window (`_optimistic_set_at`) didn't track WHAT state to preserve. When user set OFF mode, the window was still active from a previous HEAT action, causing `update()` to incorrectly preserve the old HEAT state instead of accepting the new OFF state.
 
-### Contributors
-Thanks to [@chinezbrun](https://github.com/chinezbrun) for detailed logs that helped identify the flickering pattern!
-
 ## [1.9.6] - 2026-02-04
 
 **Optimistic Update Consistency Fix** - Fixed hvac_action reverting after state changes.
@@ -128,9 +119,6 @@ Thanks to [@chinezbrun](https://github.com/chinezbrun) for detailed logs that he
 - **Better API failure handling** - All entities now properly rollback to previous state if API call fails
 - **Added Known Issue warning in Configure dialog** - Options page now shows warning about EntitySelector limitation with link to workaround ([Discussion #76](https://github.com/hiall-fyi/tado_ce/discussions/76))
 
-### Contributors
-Thanks to [@hapklaar](https://github.com/hapklaar) and [@chinezbrun](https://github.com/chinezbrun) for continued testing!
-
 ## [1.9.5] - 2026-02-02
 
 **Hotfix: hvac_action not updating for changed zone** - Optimistic updates now set hvac_action correctly when setting temperature.
@@ -140,9 +128,6 @@ Thanks to [@hapklaar](https://github.com/hapklaar) and [@chinezbrun](https://git
   - Heating zones: hvac_action = HEATING when target > current temperature
   - AC zones: hvac_action matches current mode (COOLING/HEATING/DRYING/FAN)
   - The actual heating_power/ac_power will be confirmed when zones.json is refreshed
-
-### Contributors
-Thanks to [@hapklaar](https://github.com/hapklaar) and [@chinezbrun](https://github.com/chinezbrun) for detailed testing and logs that helped identify this pattern!
 
 ## [1.9.4] - 2026-02-02
 
@@ -168,9 +153,6 @@ Thanks to [@hapklaar](https://github.com/hapklaar) and [@chinezbrun](https://git
 - **Fixed slow state confirmation for Heating users** - Climate entities now update immediately after zones.json refresh instead of waiting for SCAN_INTERVAL (30s) ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @hapklaar, @chinezbrun)
 - **Fixed AC DRY mode 422 error** - DRY mode now checks capabilities to determine if temperature is required ([#79](https://github.com/hiall-fyi/tado_ce/issues/79) - @Fred224, @neonsp)
 - **Fixed AC optimistic update for Fan/Dry modes** - Temperature display now clears immediately when switching to modes that don't support temperature ([#44](https://github.com/hiall-fyi/tado_ce/issues/44) - @neonsp)
-
-### Contributors
-Thanks to [@hapklaar](https://github.com/hapklaar) for detailed screenshots and debug logs that helped confirm the root cause!
 
 ## [1.9.2] - 2026-02-01
 
@@ -241,9 +223,6 @@ If options don't save after clicking Submit, set a valid entity in **Smart Comfo
 
 ### Internal Improvements
 - **Smart Comfort per-home isolation** - SmartComfortManager now accessed via `hass.data` instead of global singleton, preparing for multi-home support
-
-### Contributors
-Thanks to [@thefern69](https://github.com/thefern69) for the Smart Comfort idea ([Discussion #33](https://github.com/hiall-fyi/tado_ce/discussions/33)), [@ChrisMarriott38](https://github.com/ChrisMarriott38) for environment sensor suggestions and bug reports ([#64](https://github.com/hiall-fyi/tado_ce/issues/64), [#54](https://github.com/hiall-fyi/tado_ce/issues/54), [#56](https://github.com/hiall-fyi/tado_ce/issues/56)), [@neonsp](https://github.com/neonsp) for AC testing ([#61](https://github.com/hiall-fyi/tado_ce/issues/61), [#44](https://github.com/hiall-fyi/tado_ce/issues/44)), [@colinada](https://github.com/colinada) for multi-TRV fix ([#66](https://github.com/hiall-fyi/tado_ce/issues/66)), and [@hapklaar](https://github.com/hapklaar) for continued AC feedback ([#44](https://github.com/hiall-fyi/tado_ce/issues/44))!
 
 ## [1.8.3] - 2026-01-26
 
