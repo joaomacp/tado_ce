@@ -58,7 +58,7 @@ Major release enabling full multi-home support.
 - [ ] **Multi-home setup guide** - Documentation for users with multiple properties
 
 **Setup & Polish:**
-- [ ] **Auto-assign Areas** - Suggest HA Areas based on zone names during setup ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
+- [x] **Auto-assign Areas** - Automatically match zone names to HA areas during setup using fuzzy matching ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
 - [ ] **Setup wizard improvements** - Streamlined flow with better error messages
 - [x] **Delete tado_api.py** - File deprecated in v1.6.0, removed in v2.0.0
 - [x] **Delete error_handler.py** - Only used by tado_api.py, removed in v2.0.0

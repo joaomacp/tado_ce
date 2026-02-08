@@ -31,6 +31,9 @@ All notable changes to Tado CE will be documented in this file.
 - **Entity freshness memory leak prevention** - Periodic cleanup task (every 5 minutes) removes expired entries from entity freshness tracking dict
 - **Fixed setup timeout issue** - Changed cleanup task from blocking while loop to proper Home Assistant timer pattern using async_track_time_interval
 
+### Setup & Polish
+- **Auto-assign areas to zone devices** - Automatically matches zone names to Home Assistant areas during setup using fuzzy matching (70% confidence threshold). Skips zones that already have areas assigned. ([#14](https://github.com/hiall-fyi/tado_ce/issues/14))
+
 ### Technical Changes
 - **100% Native Async I/O** - All file operations now use `aiofiles` instead of `run_in_executor`
 - **Per-Home File Migration** - Legacy files renamed to per-home format (e.g., `zones.json` → `zones_{home_id}.json`)
