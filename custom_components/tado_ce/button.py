@@ -432,15 +432,63 @@ class TadoSmartBoostButton(ButtonEntity):
         self._attr_device_info = get_zone_device_info(zone_id, zone_name, "HEATING")
         self._attr_icon = "mdi:fire-alert"
     
-    def _get_climate_entity_id(self) -> str:
-        """Get the climate entity ID for this zone."""
-        # Entity ID format: climate.{zone_name_lowercase_underscored}
+    def _get_climate_entity_id(self) -> str | None:
+        """Get the climate entity ID for this zone.
+        
+        Uses entity registry lookup for reliability, with name-based fallback.
+        This handles cases where HA adds suffix (e.g., _2) due to entity_id conflicts.
+        
+        Returns:
+            Climate entity ID, or None if not found
+        """
+        from homeassistant.helpers import entity_registry as er
+        
+        # Strategy 1: Entity registry lookup by unique_id (most reliable)
+        registry = er.async_get(self.hass)
+        unique_id = f"tado_ce_zone_{self._zone_id}_climate"
+        entry = registry.async_get_entity_id("climate", DOMAIN, unique_id)
+        
+        if entry:
+            return entry
+        
+        # Strategy 2: Fallback to name-based construction for backwards compatibility
         return f"climate.{self._zone_name.lower().replace(' ', '_')}"
     
-    def _get_heating_rate_entity_id(self) -> str:
-        """Get the heating rate sensor entity ID for this zone."""
-        # Entity ID format: sensor.{zone_name}_heating_rate
-        return f"sensor.{self._zone_name.lower().replace(' ', '_')}_heating_rate"
+    def _get_heating_rate(self) -> float:
+        """Get heating rate with fallback chain.
+        
+        Priority:
+        1. HeatingCycleCoordinator (°C/min → convert to °C/h)
+        2. SmartComfortManager (°C/h)
+        3. Default rate
+        
+        Returns:
+            Heating rate in °C/h
+        """
+        from .const import DOMAIN
+        
+        # Strategy 1: HeatingCycleCoordinator (most accurate)
+        heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
+        if heating_cycle_coordinator:
+            zone_data = heating_cycle_coordinator.get_zone_data(self._zone_id)
+            if zone_data and zone_data.get("heating_rate") is not None:
+                # HeatingCycleCoordinator rate is in °C/min, convert to °C/h
+                rate = zone_data.get("heating_rate") * 60
+                if rate > 0.1:
+                    _LOGGER.debug(f"Smart Boost: Using HeatingCycleCoordinator rate {rate:.2f}°C/h")
+                    return rate
+        
+        # Strategy 2: SmartComfortManager
+        smart_comfort_manager = self.hass.data.get(DOMAIN, {}).get('smart_comfort_manager')
+        if smart_comfort_manager:
+            rate = smart_comfort_manager.get_heating_rate(self._zone_id)
+            if rate is not None and rate > 0.1:
+                _LOGGER.debug(f"Smart Boost: Using SmartComfort rate {rate:.2f}°C/h")
+                return rate
+        
+        # Strategy 3: Default
+        _LOGGER.debug(f"Smart Boost: Using default rate {SMART_BOOST_DEFAULT_RATE}°C/h")
+        return SMART_BOOST_DEFAULT_RATE
     
     async def async_press(self) -> None:
         """Handle button press - smart boost with calculated duration."""
@@ -469,20 +517,8 @@ class TadoSmartBoostButton(ButtonEntity):
             target_temp = min(current_temp + 3.0, 25.0)
             _LOGGER.debug(f"Smart Boost: Using default target {target_temp}°C (current + 3)")
         
-        # Get heating rate from sensor
-        heating_rate_entity_id = self._get_heating_rate_entity_id()
-        heating_rate_state = self.hass.states.get(heating_rate_entity_id)
-        
-        if heating_rate_state and heating_rate_state.state not in ('unknown', 'unavailable'):
-            try:
-                heating_rate = float(heating_rate_state.state)
-                if heating_rate <= 0:
-                    heating_rate = SMART_BOOST_DEFAULT_RATE
-            except (ValueError, TypeError):
-                heating_rate = SMART_BOOST_DEFAULT_RATE
-        else:
-            heating_rate = SMART_BOOST_DEFAULT_RATE
-            _LOGGER.debug(f"Smart Boost: Using default heating rate {heating_rate}°C/h")
+        # Get heating rate using fallback chain
+        heating_rate = self._get_heating_rate()
         
         # Calculate duration: (target - current) / rate * 60 minutes
         temp_diff = target_temp - current_temp

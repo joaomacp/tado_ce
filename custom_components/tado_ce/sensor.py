@@ -1703,6 +1703,45 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
                 return
             
             # Need to preheat - calculate timing
+            # v1.11.0: Prioritize HeatingCycleCoordinator rate over SmartComfort rate
+            # HeatingCycleCoordinator uses complete heating cycles for more accurate rate
+            heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
+            cycle_heating_rate = None
+            cycle_confidence = None
+            
+            if heating_cycle_coordinator:
+                zone_data_cycle = heating_cycle_coordinator.get_zone_data(self._zone_id)
+                if zone_data_cycle and zone_data_cycle.get("heating_rate") is not None:
+                    # HeatingCycleCoordinator rate is in °C/min, convert to °C/h for consistency
+                    cycle_heating_rate = zone_data_cycle.get("heating_rate") * 60
+                    cycle_count = zone_data_cycle.get("cycle_count", 0)
+                    # Determine confidence based on cycle count
+                    if cycle_count >= 5:
+                        cycle_confidence = "high"
+                    elif cycle_count >= 3:
+                        cycle_confidence = "medium"
+                    else:
+                        cycle_confidence = "low"
+            
+            # If we have HeatingCycleCoordinator data, use it directly
+            if cycle_heating_rate is not None and cycle_heating_rate > 0.1:
+                from datetime import timedelta
+                temp_diff = self._target_temp - self._current_temp
+                hours_needed = temp_diff / cycle_heating_rate
+                minutes_needed = int(hours_needed * 60)
+                minutes_needed = min(minutes_needed, 240)  # Cap at 4 hours
+                
+                recommended_start = next_block.start_time - timedelta(minutes=minutes_needed)
+                
+                self._attr_native_value = recommended_start.strftime("%H:%M")
+                self._duration_minutes = minutes_needed
+                self._heating_rate = cycle_heating_rate
+                self._confidence = cycle_confidence
+                self._summary = f"Start at {self._attr_native_value} ({minutes_needed} min to reach {self._target_temp:.1f}°C)"
+                self._attr_available = True
+                return
+            
+            # Fallback to SmartComfortManager
             advice = manager.get_preheat_advice(
                 self._zone_id,
                 self._target_temp,

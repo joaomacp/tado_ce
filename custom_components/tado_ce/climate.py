@@ -392,111 +392,111 @@ class TadoClimate(ClimateEntity):
                 zone_data = zone_states.get(self._zone_id)
             else:
                 zone_data = None
-                
-                if not zone_data:
-                    self._attr_available = False
-                    return
-                
-                # Current temperature (use 'or {}' pattern for null safety)
-                sensor_data = zone_data.get('sensorDataPoints') or {}
-                self._attr_current_temperature = (
-                    (sensor_data.get('insideTemperature') or {}).get('celsius')
-                )
-                
-                # v1.11.0: Notify heating cycle coordinator of temperature update
-                if self._attr_current_temperature is not None:
-                    heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
-                    if heating_cycle_coordinator:
-                        # Run in background to avoid blocking update
-                        # Use call_soon_threadsafe since update() runs in executor thread
-                        self.hass.loop.call_soon_threadsafe(
-                            self.hass.async_create_task,
-                            heating_cycle_coordinator.on_temperature_update(
-                                self._zone_id, self._attr_current_temperature
-                            )
+            
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            # Current temperature (use 'or {}' pattern for null safety)
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            self._attr_current_temperature = (
+                (sensor_data.get('insideTemperature') or {}).get('celsius')
+            )
+            
+            # v1.11.0: Notify heating cycle coordinator of temperature update
+            if self._attr_current_temperature is not None:
+                heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
+                if heating_cycle_coordinator:
+                    # Run in background to avoid blocking update
+                    # Use call_soon_threadsafe since update() runs in executor thread
+                    self.hass.loop.call_soon_threadsafe(
+                        self.hass.async_create_task,
+                        heating_cycle_coordinator.on_temperature_update(
+                            self._zone_id, self._attr_current_temperature
                         )
+                    )
+            
+            # Current humidity
+            self._attr_current_humidity = (
+                (sensor_data.get('humidity') or {}).get('percentage')
+            )
+            
+            # Heating power
+            activity_data = zone_data.get('activityDataPoints') or {}
+            self._heating_power = (
+                (activity_data.get('heatingPower') or {}).get('percentage', 0)
+            )
+            
+            # Setting (target temp and mode)
+            setting = zone_data.get('setting') or {}
+            power = setting.get('power')
+            self._overlay_type = zone_data.get('overlayType')
+            
+            # v1.9.7: Determine API-reported state first
+            if power == 'ON':
+                temp = (setting.get('temperature') or {}).get('celsius')
+                self._attr_target_temperature = temp
                 
-                # Current humidity
-                self._attr_current_humidity = (
-                    (sensor_data.get('humidity') or {}).get('percentage')
-                )
-                
-                # Heating power
-                activity_data = zone_data.get('activityDataPoints') or {}
-                self._heating_power = (
-                    (activity_data.get('heatingPower') or {}).get('percentage', 0)
-                )
-                
-                # Setting (target temp and mode)
-                setting = zone_data.get('setting') or {}
-                power = setting.get('power')
-                self._overlay_type = zone_data.get('overlayType')
-                
-                # v1.9.7: Determine API-reported state first
-                if power == 'ON':
-                    temp = (setting.get('temperature') or {}).get('celsius')
-                    self._attr_target_temperature = temp
-                    
-                    # Determine HVAC mode - match official Tado integration behavior
-                    if self._overlay_type == 'MANUAL':
-                        api_hvac_mode = HVACMode.HEAT
-                    else:
-                        api_hvac_mode = HVACMode.AUTO
+                # Determine HVAC mode - match official Tado integration behavior
+                if self._overlay_type == 'MANUAL':
+                    api_hvac_mode = HVACMode.HEAT
                 else:
-                    # Power is OFF
-                    if self._overlay_type == 'MANUAL':
-                        api_hvac_mode = HVACMode.OFF
-                    else:
-                        api_hvac_mode = HVACMode.AUTO
-                
-                # v1.9.7: Calculate hvac_action based on API state
-                # Temporarily set hvac_mode to calculate action correctly
-                old_hvac_mode = self._attr_hvac_mode
+                    api_hvac_mode = HVACMode.AUTO
+            else:
+                # Power is OFF
+                if self._overlay_type == 'MANUAL':
+                    api_hvac_mode = HVACMode.OFF
+                else:
+                    api_hvac_mode = HVACMode.AUTO
+            
+            # v1.9.7: Calculate hvac_action based on API state
+            # Temporarily set hvac_mode to calculate action correctly
+            old_hvac_mode = self._attr_hvac_mode
+            self._attr_hvac_mode = api_hvac_mode
+            api_hvac_action = self._calculate_hvac_action()
+            self._attr_hvac_mode = old_hvac_mode  # Restore for comparison
+            
+            # v1.10.0: Sequence-based optimistic state handling (Issue #44 fix)
+            # Preserve optimistic state if we have an active optimistic sequence
+            # and API hasn't confirmed our expected state yet
+            should_preserve = False
+            
+            if self._optimistic_sequence is not None:
+                # Check if API has confirmed our expected mode
+                if api_hvac_mode == self._expected_hvac_mode and api_hvac_action == self._expected_hvac_action:
+                    # API confirmed our expected state - clear optimistic state
+                    _LOGGER.debug(f"{self._zone_name}: API confirmed optimistic state (mode={api_hvac_mode}, action={api_hvac_action}), clearing")
+                    self._clear_optimistic_state()
+                else:
+                    # API hasn't caught up yet - PRESERVE optimistic state
+                    should_preserve = True
+                    _LOGGER.debug(
+                        f"{self._zone_name}: Preserving optimistic state "
+                        f"(expected mode={self._expected_hvac_mode}, action={self._expected_hvac_action}; "
+                        f"API shows mode={api_hvac_mode}, action={api_hvac_action})"
+                    )
+            
+            # v1.10.0: Apply state based on preservation decision
+            if should_preserve:
+                # Keep optimistic mode and action until API confirms
+                self._attr_hvac_mode = self._expected_hvac_mode
+                self._attr_hvac_action = self._expected_hvac_action
+                _LOGGER.debug(f"{self._zone_name}: Using optimistic state: mode={self._attr_hvac_mode}, action={self._attr_hvac_action}")
+            else:
+                # Use API state
                 self._attr_hvac_mode = api_hvac_mode
-                api_hvac_action = self._calculate_hvac_action()
-                self._attr_hvac_mode = old_hvac_mode  # Restore for comparison
+                self._attr_hvac_action = api_hvac_action
                 
-                # v1.10.0: Sequence-based optimistic state handling (Issue #44 fix)
-                # Preserve optimistic state if we have an active optimistic sequence
-                # and API hasn't confirmed our expected state yet
-                should_preserve = False
-                
-                if self._optimistic_sequence is not None:
-                    # Check if API has confirmed our expected mode
-                    if api_hvac_mode == self._expected_hvac_mode and api_hvac_action == self._expected_hvac_action:
-                        # API confirmed our expected state - clear optimistic state
-                        _LOGGER.debug(f"{self._zone_name}: API confirmed optimistic state (mode={api_hvac_mode}, action={api_hvac_action}), clearing")
-                        self._clear_optimistic_state()
-                    else:
-                        # API hasn't caught up yet - PRESERVE optimistic state
-                        should_preserve = True
-                        _LOGGER.debug(
-                            f"{self._zone_name}: Preserving optimistic state "
-                            f"(expected mode={self._expected_hvac_mode}, action={self._expected_hvac_action}; "
-                            f"API shows mode={api_hvac_mode}, action={api_hvac_action})"
-                        )
-                
-                # v1.10.0: Apply state based on preservation decision
-                if should_preserve:
-                    # Keep optimistic mode and action until API confirms
-                    self._attr_hvac_mode = self._expected_hvac_mode
-                    self._attr_hvac_action = self._expected_hvac_action
-                    _LOGGER.debug(f"{self._zone_name}: Using optimistic state: mode={self._attr_hvac_mode}, action={self._attr_hvac_action}")
-                else:
-                    # Use API state
-                    self._attr_hvac_mode = api_hvac_mode
-                    self._attr_hvac_action = api_hvac_action
-                    
-                    # Handle OFF mode specifics
-                    if power != 'ON' and api_hvac_mode in (HVACMode.OFF, HVACMode.AUTO):
-                        self._attr_target_temperature = None
-                        if api_hvac_mode == HVACMode.OFF:
-                            self._attr_hvac_action = HVACAction.OFF
-                
-                self._attr_available = True
-                
-                # v1.9.0: Record temperature for Smart Comfort analytics
-                self._record_smart_comfort_data()
+                # Handle OFF mode specifics
+                if power != 'ON' and api_hvac_mode in (HVACMode.OFF, HVACMode.AUTO):
+                    self._attr_target_temperature = None
+                    if api_hvac_mode == HVACMode.OFF:
+                        self._attr_hvac_action = HVACAction.OFF
+            
+            self._attr_available = True
+            
+            # v1.9.0: Record temperature for Smart Comfort analytics
+            self._record_smart_comfort_data()
             
             # Update preset mode from home state
             self._update_preset_mode()
