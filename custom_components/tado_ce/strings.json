@@ -205,7 +205,9 @@
           "heating_cycle_min_cycles": "Minimum Cycles for Analysis",
           "heating_cycle_inertia_threshold": "Inertia Detection Threshold",
           "ufh_buffer_minutes": "UFH Buffer (minutes)",
-          "ufh_zones": "UFH Zones"
+          "ufh_zones": "UFH Zones",
+          "adaptive_preheat_enabled": "Adaptive Preheat",
+          "adaptive_preheat_zones": "Adaptive Preheat Zones"
         },
         "data_description": {
           "weather_enabled": "Get outside temperature and solar intensity from Tado (+1 API call per sync)",
@@ -232,7 +234,9 @@
           "heating_cycle_min_cycles": "Minimum completed cycles required before showing analytics (1-10, default: 3)",
           "heating_cycle_inertia_threshold": "Temperature change threshold to detect inertia end (0.05-0.5°C, default: 0.1)",
           "ufh_buffer_minutes": "Extra buffer time for underfloor heating systems (0-60 min). Adds to preheat time for UFH thermal lag.",
-          "ufh_zones": "Select zones with underfloor heating. Leave empty to apply buffer to all zones."
+          "ufh_zones": "Select zones with underfloor heating. Leave empty to apply buffer to all zones.",
+          "adaptive_preheat_enabled": "Automatically start heating at recommended preheat time. Requires Smart Comfort to be enabled.",
+          "adaptive_preheat_zones": "Select zones for adaptive preheat. Leave empty to apply to all heating zones."
         }
       }
     },
