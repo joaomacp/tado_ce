@@ -156,6 +156,7 @@ Smart Polling includes multiple strategies to optimize API usage:
 
 - **Day/Night Polling** - More frequent during day, less at night
 - **Adaptive Polling** - Auto-adjusts based on remaining quota
+- **Quota Reserve Protection** - Pauses polling when quota critically low, auto-resumes after reset (v2.0.0)
 - **Custom Intervals** - Override with fixed intervals
 - **Optional Sensors** - Toggle features to save API calls
 
@@ -192,6 +193,12 @@ Smart Polling includes multiple strategies to optimize API usage:
 - Faster polling when quota is healthy
 - Slower polling when quota is low
 - Keeps 10% safety buffer
+
+**Quota Reserve Protection (v2.0.0):**
+- Pauses polling when quota critically low (≤5% or ≤5 calls remaining)
+- Reserves quota for manual operations (set temperature, change mode, etc.)
+- Automatically resumes polling when API reset time passes
+- Prevents "locked out" scenario where polling stops and never resumes
 
 **Day/Night Polling:**
 - More frequent updates during day (default 7am-11pm)

@@ -125,7 +125,7 @@ Quick overview of entities created by Tado CE:
 **New in v2.0.0**: 
 - **API Monitoring Sensors**: Next/Last Sync, Polling Interval, Call History, API Call Breakdown - no templates required!
 - **Thermal Analytics**: Heating rate analysis, thermal inertia, preheat estimates with confidence scoring (TRV zones only)
-- **Quota Reserve Protection**: Automatically pauses polling when quota critically low (≤5% or ≤5 calls), reserves quota for manual operations
+- **Quota Reserve Protection**: Automatically pauses polling when quota critically low (≤5% or ≤5 calls), reserves quota for manual operations, auto-resumes after API reset
 
 ---
 

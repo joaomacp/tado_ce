@@ -8,11 +8,12 @@
 
 ### Feature Ideas & Suggestions
 
-**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #89](https://github.com/hiall-fyi/tado_ce/issues/89), [Issue #90](https://github.com/hiall-fyi/tado_ce/issues/90)
+**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #89](https://github.com/hiall-fyi/tado_ce/issues/89), [Issue #90](https://github.com/hiall-fyi/tado_ce/issues/90), [Issue #94](https://github.com/hiall-fyi/tado_ce/issues/94)
 - Proposed Adaptive Smart Polling based on remaining API quota
 - Professional testing and validation of polling calculations
 - Suggested Enhanced Mold Risk with surface temperature calculation
 - Proposed window U-value configuration for accurate cold spot detection
+- Reported API reset detection failure when quota exhausted before reset time (led to Quota Reserve Protection)
 
 **[@dimitri-frank](https://github.com/dimitri-frank)** - [Issue #78](https://github.com/hiall-fyi/tado_ce/issues/78)
 - Proposed Two-Phase Heating Model (Thermal Inertia + Heating Rate)
@@ -32,6 +33,7 @@
 
 - ✅ **Issue #89**: Adaptive Smart Polling - real-time interval based on remaining quota
 - ✅ **Issue #90**: Enhanced Mold Risk - surface temperature calculation with window U-value
+- ✅ **Issue #94**: Quota Reserve Protection - auto-resume polling after reset time passes
 - ✅ **Issue #78**: Thermal Analytics - complete heating cycle tracking with first/second order metrics
 - ✅ **Issue #84**: Documented timer duration workaround via services
 - ✅ **Issue #93**: Hot Water Timer buttons now use entity registry lookup

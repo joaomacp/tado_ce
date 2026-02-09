@@ -21,6 +21,9 @@ All notable changes to Tado CE will be documented in this file.
 - **Adaptive Smart Polling** - Real-time polling interval based on remaining API quota ([#89](https://github.com/hiall-fyi/tado_ce/issues/89) - @ChrisMarriott38)
   - Universal quota support: works with any API tier (100, 200, 500, 5000, 20000+)
   - Self-healing: automatically adjusts if usage spikes or quota changes
+- **Quota Reserve Protection** - Pauses polling when quota critically low (≤5% or ≤5 calls remaining) ([#94](https://github.com/hiall-fyi/tado_ce/issues/94) - @ChrisMarriott38)
+  - Reserves quota for manual operations (set temperature, change mode, etc.)
+  - Automatically resumes polling when reset time passes (fixes "locked out" issue)
 - **Enhanced Mold Risk** - Surface temperature calculation for accurate cold spot detection ([#90](https://github.com/hiall-fyi/tado_ce/issues/90) - @ChrisMarriott38)
   - Uses outdoor temp + window U-value to estimate cold spot temperature at window edges
   - Window type config: Single Pane, Double Pane (default), Triple Pane, Passive House
@@ -31,6 +34,9 @@ All notable changes to Tado CE will be documented in this file.
 - **Fixed Smart Boost button not finding climate entity** - Smart Boost now uses entity registry lookup with name-based fallback, consistent with water heater timer fix
 - **Improved heating rate fallback chain** - Preheat Advisor and Smart Boost now prioritize HeatingCycleCoordinator data, falling back to SmartComfortManager when unavailable
 - **Fixed threading issue in entity freshness cleanup** - Changed cleanup scheduler to use `hass.loop.call_soon_threadsafe()` to properly schedule tasks from executor thread, eliminating "hass.async_create_task from a thread" errors
+- **Fixed optimistic update race condition** - Changed `_set_optimistic_state()` from sync to async, ensuring `mark_entity_fresh()` completes before API call starts
+- **Fixed heating cycle detection priority** - Reordered `_calculate_hvac_action()` to check `target_temp` BEFORE `_expected_hvac_action`, preventing stale optimistic state from overriding actual heating status
+- **Fixed blocking I/O in Preheat Time sensor** - `TadoPreheatTimeSensor.native_value` now uses cached config values instead of sync file reads
 
 ### Code Quality Improvements
 - **Fixed all blocking I/O in async context** - All file operations now properly use async_add_executor_job or aiofiles
@@ -39,6 +45,8 @@ All notable changes to Tado CE will be documented in this file.
 - **Sequence number overflow protection** - Global sequence counter resets at sys.maxsize to prevent memory issues in long-running instances
 - **Entity freshness memory leak prevention** - Periodic cleanup task (every 5 minutes) removes expired entries from entity freshness tracking dict
 - **Fixed setup timeout issue** - Changed cleanup task from blocking while loop to proper Home Assistant timer pattern using async_track_time_interval
+- **Unified config access** - All modules now access configuration via `config_manager` instead of direct file reads, ensuring consistency and reducing I/O
+- **Improved heating cycle detection** - `on_zone_update()` now uses atomic state updates to prevent race conditions between temperature changes and hvac_action updates
 
 ### Setup & Polish
 - **Removed 'Tado CE' prefix from entity names** - Hub sensors now use cleaner names (e.g., 'API Usage' instead of 'Tado CE API Usage')
