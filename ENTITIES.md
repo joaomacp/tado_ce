@@ -25,7 +25,7 @@ New sensors for tracking API sync and polling:
 
 ### Smart Polling
 - **Adaptive polling interval**: Automatically adjusts based on remaining API quota
-- **Universal quota support**: Works with any API tier (100, 200, 500, 5000, 20000+)
+- **Universal quota support**: Works with any API tier (100, 5000, 20000)
 - **Quota Reserve Protection**: Pauses polling when quota critically low (≤5% or ≤5 calls), reserves quota for manual operations, auto-resumes after reset time passes
 
 ### Enhanced Mold Risk

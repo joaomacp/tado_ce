@@ -153,16 +153,16 @@ All services available in **Developer Tools > Services** with full parameter doc
 ### The Design Philosophy
 
 - **Real-time Adaptive**: Calculates interval before each sync based on remaining quota, distributes remaining calls over remaining time, self-healing for any usage pattern
-- **Universal**: Works for ANY quota tier (100, 200, 500, 5000, 20000+) - no hardcoded tiers or special cases
+- **Universal**: Works for ANY quota tier (100, 5000, 20000) - no hardcoded tiers or special cases
 - **Simple & Predictable**: Easy to understand, transparent through debug logging
 
 ### What This Means For You
 
 | Quota | Typical Interval | Daily Utilization |
 |-------|------------------|-------------------|
-| 100 | ~16 min (vs old 30 min!) | ~90 calls (90%) |
-| 200 | ~8 min | ~180 calls |
-| 5000+ | 5-10 min | Prevents excessive polling |
+| 100 | ~16 min | ~90 calls (90%) |
+| 5000 | ~5 min | ~576 calls |
+| 20000 | 5 min (minimum) | Prevents excessive polling |
 
 **Self-healing**: If you make manual API calls, it automatically slows down. End of day uses remaining quota efficiently.
 

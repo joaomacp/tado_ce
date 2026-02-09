@@ -148,7 +148,7 @@ You can enable all features without concern:
 - Smart Comfort Analytics
 - Schedule Calendar
 
-Even with 5-minute polling, you'll use ~500 calls/day.
+Even with 5-minute polling, you'll use ~576 calls/day (well under 5000 tier).
 
 ---
 

@@ -1158,7 +1158,7 @@ Where:
 
 **Adaptive Calculation:**
 ```
-Interval = (12h × 60min) / (4500 / 0.90) = 720 / 5000 = 0.14 minutes
+Interval = (720 min / 4500) / 0.90 = 0.16 / 0.90 = 0.18 minutes
 Clamped to MIN_INTERVAL = 5 minutes
 ```
 
@@ -1180,10 +1180,10 @@ Clamped to MIN_INTERVAL = 5 minutes
 
 **Adaptive Calculation:**
 ```
-Interval = (12h × 60min) / (50 / 0.90) = 720 / 55.5 = 13 minutes
+Interval = (720 min / 50) / 0.90 = 14.4 / 0.90 = 16 minutes
 ```
 
-**Result:** Polls every 13 minutes
+**Result:** Polls every 16 minutes
 
 **Benefits:**
 - Distributes calls evenly across remaining time
@@ -1195,16 +1195,16 @@ Interval = (12h × 60min) / (50 / 0.90) = 720 / 55.5 = 13 minutes
 #### Scenario 3: Quota Running Low
 
 **Situation:**
-- Quota: 500 calls/day
+- Quota: 5000 calls/day
 - Remaining: 10 calls (⚠️ low!)
 - Time until reset: 6 hours
 
 **Adaptive Calculation:**
 ```
-Interval = (6h × 60min) / (10 / 0.90) = 360 / 11.1 = 32 minutes
+Interval = (360 min / 10) / 0.90 = 36 / 0.90 = 40 minutes
 ```
 
-**Result:** Polls every 32 minutes (slowed down to conserve quota)
+**Result:** Polls every 40 minutes (slowed down to conserve quota)
 
 **Benefits:**
 - Prevents rate limiting
@@ -1217,8 +1217,8 @@ Interval = (6h × 60min) / (10 / 0.90) = 360 / 11.1 = 32 minutes
 
 **Situation:**
 - You want consistent 10-minute polling
-- Quota: 200 calls/day
-- Remaining: 150 calls
+- Quota: 5000 calls/day
+- Remaining: 4000 calls
 
 **Setup:**
 1. Enable "Custom Polling Interval" = 10 minutes
@@ -1786,7 +1786,7 @@ automation:
 ### Scenario 1: Small Apartment (1-2 rooms)
 
 **Profile:**
-- Quota: 100-200 calls/day
+- Quota: 100 calls/day
 - Zones: 1-2 heating zones
 - Features needed: Basic monitoring
 
@@ -1808,7 +1808,7 @@ Window Type: Double Pane (typical)
 ### Scenario 2: Large House (5+ rooms)
 
 **Profile:**
-- Quota: 500-5000 calls/day
+- Quota: 5000+ calls/day
 - Zones: 5-10 heating zones
 - Features needed: Full analytics
 

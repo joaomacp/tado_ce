@@ -19,7 +19,7 @@ All notable changes to Tado CE will be documented in this file.
   - New sensors: `_thermal_inertia`, `_avg_heating_rate`, `_preheat_time`, `_analysis_confidence`, `_heating_acceleration`, `_approach_factor`
   - TRV-only: Thermal analytics only for zones with TRV devices (not SU02 Smart Thermostat)
 - **Adaptive Smart Polling** - Real-time polling interval based on remaining API quota ([#89](https://github.com/hiall-fyi/tado_ce/issues/89) - @ChrisMarriott38)
-  - Universal quota support: works with any API tier (100, 200, 500, 5000, 20000+)
+  - Universal quota support: works with any API tier (100, 5000, 20000)
   - Self-healing: automatically adjusts if usage spikes or quota changes
 - **Quota Reserve Protection** - Pauses polling when quota critically low (≤5% or ≤5 calls remaining) ([#94](https://github.com/hiall-fyi/tado_ce/issues/94) - @ChrisMarriott38)
   - Reserves quota for manual operations (set temperature, change mode, etc.)
