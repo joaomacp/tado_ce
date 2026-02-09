@@ -181,6 +181,9 @@ class TadoClimate(ClimateEntity):
         self._offset_celsius = None  # Temperature offset (optional, enabled in config)
         self._attr_preset_mode = PRESET_HOME
         
+        # v2.0.0: Track last target temp from API for heating cycle detection
+        self._last_target_temp_from_api: float | None = None
+        
         # v1.10.0: Optimistic state tracking with sequence numbers (Issue #44 fix)
         # Replaces v1.9.7's flawed state-based tracking with coordinator-aware approach
         self._optimistic_state: dict | None = None  # Current optimistic state
@@ -397,19 +400,6 @@ class TadoClimate(ClimateEntity):
                 (sensor_data.get('insideTemperature') or {}).get('celsius')
             )
             
-            # v1.11.0: Notify heating cycle coordinator of temperature update
-            if self._attr_current_temperature is not None:
-                heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
-                if heating_cycle_coordinator:
-                    # Run in background to avoid blocking update
-                    # Use call_soon_threadsafe since update() runs in executor thread
-                    self.hass.loop.call_soon_threadsafe(
-                        self.hass.async_create_task,
-                        heating_cycle_coordinator.on_temperature_update(
-                            self._zone_id, self._attr_current_temperature
-                        )
-                    )
-            
             # Current humidity
             self._attr_current_humidity = (
                 (sensor_data.get('humidity') or {}).get('percentage')
@@ -430,6 +420,19 @@ class TadoClimate(ClimateEntity):
             if power == 'ON':
                 temp = (setting.get('temperature') or {}).get('celsius')
                 self._attr_target_temperature = temp
+                
+                # v2.0.0 fix: Use SINGLE atomic call to heating cycle coordinator
+                # This eliminates race conditions between setpoint and temperature updates
+                if temp is not None and self._attr_current_temperature is not None:
+                    heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
+                    if heating_cycle_coordinator:
+                        # Use on_zone_update for atomic operation
+                        self.hass.loop.call_soon_threadsafe(
+                            self.hass.async_create_task,
+                            heating_cycle_coordinator.on_zone_update(
+                                self._zone_id, temp, self._attr_current_temperature
+                            )
+                        )
                 
                 # Determine HVAC mode - match official Tado integration behavior
                 if self._overlay_type == 'MANUAL':
@@ -640,10 +643,12 @@ class TadoClimate(ClimateEntity):
         
         if api_success:
             _LOGGER.info(f"Set {self._zone_name} to {temperature}°C")
-            # v1.11.0: Notify heating cycle coordinator of setpoint change
+            # v2.0.0: Notify heating cycle coordinator of setpoint change
             heating_cycle_coordinator = self.hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
             if heating_cycle_coordinator:
-                await heating_cycle_coordinator.on_setpoint_change(self._zone_id, temperature)
+                await heating_cycle_coordinator.on_setpoint_change(
+                    self._zone_id, temperature, self._attr_current_temperature
+                )
             # Refresh is best-effort, don't rollback if it fails
             await self._async_trigger_immediate_refresh("temperature_change")
         else:

@@ -23,9 +23,21 @@ class HeatingCycleAnalyzer:
         Returns:
             Dictionary with metrics, or None if insufficient data
         """
-        if len(cycles) < self._min_cycles:
+        # Filter to only valid heating cycles:
+        # - completed=True
+        # - start_temp < target_temp (actual heating occurred)
+        # - positive temperature delta
+        valid_cycles = [
+            c for c in cycles
+            if c.completed
+            and c.start_temp is not None
+            and c.start_temp < c.target_temp - 0.1  # At least 0.1°C heating needed
+        ]
+        
+        if len(valid_cycles) < self._min_cycles:
             _LOGGER.debug(
-                "Insufficient cycles for analysis: %d < %d",
+                "Insufficient valid heating cycles for analysis: %d valid out of %d total (need %d)",
+                len(valid_cycles),
                 len(cycles),
                 self._min_cycles
             )
@@ -35,7 +47,7 @@ class HeatingCycleAnalyzer:
         inertia_times = []
         heating_rates = []
         
-        for cycle in cycles:
+        for cycle in valid_cycles:
             # Inertia time (minutes)
             if cycle.first_rise_time and cycle.start_time:
                 inertia_minutes = (cycle.first_rise_time - cycle.start_time).total_seconds() / 60
@@ -45,7 +57,8 @@ class HeatingCycleAnalyzer:
             if cycle.end_time and cycle.start_temp is not None:
                 duration_minutes = (cycle.end_time - cycle.start_time).total_seconds() / 60
                 temp_delta = cycle.target_temp - cycle.start_temp
-                if duration_minutes > 0:
+                # Only include positive heating rates
+                if duration_minutes > 0 and temp_delta > 0:
                     rate = temp_delta / duration_minutes
                     heating_rates.append(rate)
         

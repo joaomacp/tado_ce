@@ -539,6 +539,51 @@ class ConfigurationManager:
             return [str(z) for z in zones]
         return []
     
+    def get_heating_cycle_min_cycles(self) -> int:
+        """Get minimum cycles required for thermal analytics.
+        
+        v2.0.0: Number of completed heating cycles needed before
+        thermal analytics sensors show data.
+        
+        Returns:
+            Minimum cycles (1-10, default 3)
+        """
+        cycles = self._options.get('heating_cycle_min_cycles', 3)
+        if isinstance(cycles, float):
+            cycles = int(cycles)
+        if isinstance(cycles, int) and 1 <= cycles <= 10:
+            return cycles
+        return 3
+    
+    def get_heating_cycle_history_days(self) -> int:
+        """Get heating cycle history retention in days.
+        
+        v2.0.0: Number of days of heating cycle data to keep.
+        
+        Returns:
+            Number of days (7-90, default 30)
+        """
+        days = self._options.get('heating_cycle_history_days', 30)
+        if isinstance(days, float):
+            days = int(days)
+        if isinstance(days, int) and 7 <= days <= 90:
+            return days
+        return 30
+    
+    def get_heating_cycle_inertia_threshold(self) -> float:
+        """Get thermal inertia detection threshold.
+        
+        v2.0.0: Temperature rise (°C) required to detect first rise.
+        Lower = more sensitive, higher = less false positives.
+        
+        Returns:
+            Threshold in °C (0.05-0.5, default 0.1)
+        """
+        threshold = self._options.get('heating_cycle_inertia_threshold', 0.1)
+        if isinstance(threshold, (int, float)) and 0.05 <= threshold <= 0.5:
+            return float(threshold)
+        return 0.1
+    
     def sync_all_to_config_json(self) -> None:
         """Sync all configuration values to config.json for tado_api.py to read.
         

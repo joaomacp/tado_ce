@@ -151,6 +151,9 @@ def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationMana
     v2.0.0: Quota Reserve Protection - pauses polling when quota is critically low
     to ensure users can still perform manual operations (set temperature, etc.)
     
+    v2.0.1: Added reset time check - if reset time has passed, resume polling
+    to detect the actual reset from API headers.
+    
     Args:
         ratelimit_data: Rate limit data with 'remaining', 'used', 'reset_seconds'
         config_manager: Configuration manager for feature settings
@@ -160,6 +163,24 @@ def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationMana
         - should_pause: True if polling should be paused
         - reason: Human-readable explanation (empty if not pausing)
     """
+    # v2.0.1: Check if reset time has passed - if so, resume polling to detect reset
+    last_reset_utc = ratelimit_data.get("last_reset_utc")
+    if last_reset_utc:
+        try:
+            last_reset = datetime.fromisoformat(last_reset_utc.replace('Z', '+00:00'))
+            next_reset = last_reset + timedelta(hours=24)
+            now_utc = datetime.now(timezone.utc)
+            
+            # If next reset time has passed, resume polling to detect actual reset
+            if now_utc >= next_reset:
+                _LOGGER.info(
+                    f"Tado CE: Reset time has passed (expected {next_reset.strftime('%H:%M')} UTC). "
+                    f"Resuming polling to detect actual reset."
+                )
+                return False, ""
+        except Exception as e:
+            _LOGGER.debug(f"Failed to check reset time: {e}")
+    
     # Get remaining quota based on mode
     if config_manager.get_test_mode_enabled():
         # Test Mode: use 100 as daily limit
@@ -1195,10 +1216,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entity_freshness[entity_id] = time.time()
             _LOGGER.debug(f"Marked entity fresh: {entity_id}")
     
-    def is_entity_fresh(entity_id: str, debounce_seconds: int = 17) -> bool:
-        """Check if entity has a recent API call (within debounce window)."""
+    def is_entity_fresh(entity_id: str, debounce_seconds: int = None) -> bool:
+        """Check if entity has a recent API call (within debounce window).
+        
+        Args:
+            entity_id: Entity ID to check
+            debounce_seconds: Override debounce window (uses config if None)
+        """
         if entity_id not in entity_freshness:
             return False
+        
+        # Use config value if not overridden
+        if debounce_seconds is None:
+            debounce_seconds = config_manager.get_refresh_debounce_seconds() + 2
         
         elapsed = time.time() - entity_freshness[entity_id]
         if elapsed > debounce_seconds:
@@ -1672,12 +1702,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             from .heating_cycle_coordinator import HeatingCycleCoordinator
             from .heating_cycle_models import HeatingCycleConfig
             
-            # Create config from settings (use defaults for now, will add config options later)
+            # Create config from user settings
             heating_cycle_config = HeatingCycleConfig(
                 enabled=True,
-                rolling_window_days=7,
-                inertia_threshold_celsius=0.1,
-                min_cycles=3,
+                rolling_window_days=config_manager.get_heating_cycle_history_days(),
+                inertia_threshold_celsius=config_manager.get_heating_cycle_inertia_threshold(),
+                min_cycles=config_manager.get_heating_cycle_min_cycles(),
+            )
+            
+            _LOGGER.info(
+                "Tado CE: Heating Cycle Config - min_cycles=%d, history_days=%d, inertia_threshold=%.2f",
+                heating_cycle_config.min_cycles,
+                heating_cycle_config.rolling_window_days,
+                heating_cycle_config.inertia_threshold_celsius
             )
             
             # Initialize coordinator

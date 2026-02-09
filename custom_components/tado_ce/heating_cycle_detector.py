@@ -22,19 +22,64 @@ class HeatingCycleDetector:
         self._last_target_temp: Optional[float] = None
         
     def check_setpoint_change(
-        self, new_target: float, timestamp: datetime
+        self, new_target: float, timestamp: datetime, current_temp: float = None
     ) -> bool:
         """Check if setpoint increased (potential cycle start).
+        
+        Args:
+            new_target: New target temperature
+            timestamp: Time of the change
+            current_temp: Current room temperature (optional, used for restart detection)
         
         Returns:
             True if a new cycle was started, False otherwise.
         """
+        _LOGGER.debug(
+            "Zone %s: check_setpoint_change called - last_target=%s, new_target=%.1f, current_temp=%s",
+            self._zone_id,
+            self._last_target_temp,
+            new_target,
+            current_temp
+        )
+        
+        # First time initialization after HA restart
         if self._last_target_temp is None:
             self._last_target_temp = new_target
+            
+            # v2.0.0 fix: If current_temp is provided and below target,
+            # zone is already heating - start a cycle
+            if current_temp is not None and current_temp < new_target - 0.1:
+                _LOGGER.info(
+                    "Zone %s: Detected active heating after restart "
+                    "(current=%.1f°C < target=%.1f°C), starting cycle",
+                    self._zone_id,
+                    current_temp,
+                    new_target
+                )
+                self._active_cycle = HeatingCycle(
+                    zone_id=self._zone_id,
+                    start_time=timestamp,
+                    end_time=None,
+                    start_temp=current_temp,
+                    target_temp=new_target,
+                    first_rise_time=None,
+                    first_rise_temp=None,
+                    temperature_readings=[TemperatureReading(time=timestamp, temp=current_temp)],
+                    completed=False,
+                    interrupted=False,
+                    interrupt_reason=None,
+                )
+                return True
             return False
         
         if new_target > self._last_target_temp:
             # Setpoint increased, start new cycle
+            _LOGGER.debug(
+                "Zone %s: Setpoint increased from %.1f to %.1f, starting new cycle",
+                self._zone_id,
+                self._last_target_temp,
+                new_target
+            )
             if self._active_cycle:
                 # Interrupt existing cycle
                 self._active_cycle.interrupted = True
@@ -126,16 +171,38 @@ class HeatingCycleDetector:
         if current_temp >= self._active_cycle.target_temp:
             # Target reached
             self._active_cycle.end_time = datetime.now(timezone.utc)
-            self._active_cycle.completed = True
-            completed = self._active_cycle
-            self._active_cycle = None
             
-            _LOGGER.info(
-                "Zone %s: Cycle completed, duration=%.1f min",
-                self._zone_id,
-                (completed.end_time - completed.start_time).total_seconds() / 60
-            )
-            return completed
+            # Validate: Only mark as completed if there was actual heating
+            # (start_temp < target_temp and meaningful temperature rise)
+            start_temp = self._active_cycle.start_temp
+            target_temp = self._active_cycle.target_temp
+            
+            if start_temp is not None and start_temp < target_temp - 0.1:
+                # Valid heating cycle - temperature actually needed to rise
+                self._active_cycle.completed = True
+                completed = self._active_cycle
+                self._active_cycle = None
+                
+                _LOGGER.info(
+                    "Zone %s: Cycle completed, duration=%.1f min, "
+                    "start=%.1f°C, target=%.1f°C",
+                    self._zone_id,
+                    (completed.end_time - completed.start_time).total_seconds() / 60,
+                    start_temp,
+                    target_temp
+                )
+                return completed
+            else:
+                # Invalid cycle - was already at or above target, discard
+                _LOGGER.debug(
+                    "Zone %s: Discarding cycle - start_temp (%.1f°C) >= target (%.1f°C), "
+                    "no actual heating occurred",
+                    self._zone_id,
+                    start_temp if start_temp else 0,
+                    target_temp
+                )
+                self._active_cycle = None
+                return None
         
         return None
     

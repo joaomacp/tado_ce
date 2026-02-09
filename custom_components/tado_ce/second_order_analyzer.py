@@ -50,12 +50,20 @@ class SecondOrderAnalyzer:
         Returns:
             Average acceleration in °C/h², or None if insufficient data
         """
-        if len(cycles) < self._min_cycles:
+        # Filter to only valid heating cycles
+        valid_cycles = [
+            c for c in cycles
+            if c.completed
+            and c.start_temp is not None
+            and c.start_temp < c.target_temp - 0.1  # At least 0.1°C heating needed
+        ]
+        
+        if len(valid_cycles) < self._min_cycles:
             return None
         
         accelerations = []
         
-        for cycle in cycles:
+        for cycle in valid_cycles:
             accel = self._calculate_cycle_acceleration(cycle)
             if accel is not None:
                 accelerations.append(accel)
@@ -184,12 +192,20 @@ class SecondOrderAnalyzer:
         Returns:
             Approach factor as percentage (0-100), or None if insufficient data
         """
-        if len(cycles) < self._min_cycles:
+        # Filter to only valid heating cycles
+        valid_cycles = [
+            c for c in cycles
+            if c.completed
+            and c.start_temp is not None
+            and c.start_temp < c.target_temp - 0.1  # At least 0.1°C heating needed
+        ]
+        
+        if len(valid_cycles) < self._min_cycles:
             return None
         
         factors = []
         
-        for cycle in cycles:
+        for cycle in valid_cycles:
             factor = self._calculate_cycle_approach_factor(cycle)
             if factor is not None:
                 factors.append(factor)
