@@ -111,25 +111,26 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
         if zones_info:
             zone_types = {str(z.get('id')): z.get('type', 'HEATING') for z in zones_info}
         
-        # Build zone TRV map - check if zone has TRV device (VA02, RU01, VA01)
-        # Only zones with TRVs should have Smart Comfort sensors
-        zones_with_trv = set()
-        TRV_DEVICE_TYPES = {'VA02', 'VA01', 'RU01', 'RU02'}  # V3+ and V2 TRVs
-        if zones_info:
-            for zone in zones_info:
-                zone_id = str(zone.get('id'))
-                devices = zone.get('devices', [])
-                for device in devices:
-                    if device.get('deviceType') in TRV_DEVICE_TYPES:
-                        zones_with_trv.add(zone_id)
-                        break
-        
-        if zones_with_trv:
-            _LOGGER.debug(f"Zones with TRV devices: {zones_with_trv}")
+        # v2.0.1 FIX: Check for heatingPower data instead of device type (#91)
+        # SU02 (Smart Thermostat) also reports heatingPower, not just TRVs
+        # Thermal Analytics requires heatingPower data for accurate analysis
+        zones_with_heating_power = set()
         
         if zones_data:
             # Use 'or {}' pattern for null safety
             zone_states = zones_data.get('zoneStates') or {}
+            
+            # v2.0.1: First pass - identify zones with heatingPower data
+            for zone_id, zone_data in zone_states.items():
+                activity_data = zone_data.get('activityDataPoints') or {}
+                heating_power = activity_data.get('heatingPower')
+                if heating_power is not None:
+                    zones_with_heating_power.add(zone_id)
+            
+            if zones_with_heating_power:
+                _LOGGER.debug(f"Zones with heatingPower data: {zones_with_heating_power}")
+            
+            # Second pass - create sensors
             for zone_id, zone_data in zone_states.items():
                 zone_type = zone_types.get(zone_id, 'HEATING')
                 zone_name = zone_names.get(zone_id, f"Zone {zone_id}")
@@ -149,12 +150,13 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoOverlaySensor(zone_id, zone_name, zone_type),
                         # v1.9.0: Environment sensors (always enabled)
                         TadoMoldRiskSensor(zone_id, zone_name, zone_type),
+                        TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),  # v2.0.1
                         TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                     ])
-                    # v1.11.0: Thermal Analytics sensors (only for zones with TRV devices)
-                    # SU02 (Smart Thermostat) doesn't have TRV, so no thermal analytics
+                    # v2.0.1 FIX: Thermal Analytics for ALL zones with heatingPower (#91)
+                    # Previously TRV-only, now includes SU02 (Smart Thermostat) zones
                     heating_cycle_coordinator = hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
-                    if zone_id in zones_with_trv:
+                    if zone_id in zones_with_heating_power:
                         if heating_cycle_coordinator:
                             sensors.extend([
                                 TadoThermalInertiaSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
@@ -165,7 +167,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                                 TadoApproachFactorSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
                             ])
                         else:
-                            _LOGGER.warning(f"Zone {zone_name} has TRV but HeatingCycleCoordinator not available - thermal analytics sensors not created")
+                            _LOGGER.warning(f"Zone {zone_name} has heatingPower but HeatingCycleCoordinator not available - thermal analytics sensors not created")
                     # v1.9.0: Smart Comfort sensors (opt-in)
                     # v1.11.0: Removed TadoThermalRateSensor, TadoTimeToTargetSensor (replaced by heating cycle analysis)
                     if config_manager.get_smart_comfort_enabled():
@@ -186,6 +188,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoOverlaySensor(zone_id, zone_name, zone_type),
                         # v1.9.0: Environment sensors (always enabled)
                         TadoMoldRiskSensor(zone_id, zone_name, zone_type),
+                        TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),  # v2.0.1
                         TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                     ])
                     # v1.9.0: Smart Comfort sensors for AC (opt-in)
@@ -334,29 +337,28 @@ class TadoApiUsageSensor(SensorEntity):
     
     @property
     def extra_state_attributes(self):
+        # v2.0.1: Read test_mode directly from ratelimit.json (Single Source of Truth)
+        test_mode = self._data.get("test_mode", False)
+        
         attrs = {
             "limit": self._data.get("limit"),
             "remaining": self._data.get("remaining"),
             "percentage_used": self._data.get("percentage_used"),
             "last_updated": self._data.get("last_updated"),
             "status": self._data.get("status"),
+            "test_mode": test_mode,  # v2.0.1: Always show test_mode status
         }
         
-        # Add Test Mode indicator if enabled
-        try:
-            from .config_manager import ConfigurationManager
-            from homeassistant.config_entries import ConfigEntry
-            
-            # Try to get config entry (this is a bit hacky but works)
-            hass = self.hass
-            if hass:
-                entries = hass.config_entries.async_entries(DOMAIN)
-                if entries:
-                    config_manager = ConfigurationManager(entries[0])
-                    if config_manager.get_test_mode_enabled():
-                        attrs["test_mode"] = "Test Mode: 100 call limit"
-        except Exception as e:
-            _LOGGER.debug(f"Failed to check Test Mode status: {e}")
+        # Add descriptive test mode message if enabled
+        if test_mode:
+            attrs["test_mode_info"] = "Simulated 100-call API tier"
+            # v2.0.1: Add Test Mode cycle info
+            test_mode_start = self._data.get("test_mode_start_time")
+            test_mode_used = self._data.get("test_mode_used")
+            if test_mode_start:
+                attrs["test_mode_start_time"] = test_mode_start
+            if test_mode_used is not None:
+                attrs["test_mode_used"] = test_mode_used
         
         # Add call history if available
         if self._call_history:
@@ -459,10 +461,12 @@ class TadoApiResetSensor(SensorEntity):
         self._status = None
         self._next_poll = None
         self._current_interval = None
+        self._test_mode = False  # v2.0.1: Test Mode indicator
+        self._test_mode_start_time = None  # v2.0.1: Test Mode cycle start
     
     @property
     def extra_state_attributes(self):
-        return {
+        attrs = {
             "time_until_reset": self._reset_human,
             "reset_seconds": self._reset_seconds,
             "reset_at": self._reset_at,  # v1.8.0: When next reset will happen
@@ -470,7 +474,16 @@ class TadoApiResetSensor(SensorEntity):
             "status": self._status,
             "next_poll": self._next_poll,
             "current_interval_minutes": self._current_interval,
+            "test_mode": self._test_mode,  # v2.0.1: Test Mode indicator
         }
+        
+        # v2.0.1: Add Test Mode specific info
+        if self._test_mode:
+            attrs["test_mode_info"] = "Simulated 24h cycle from enable time"
+            if self._test_mode_start_time:
+                attrs["test_mode_start_time"] = self._test_mode_start_time
+        
+        return attrs
     
     def update(self):
         try:
@@ -482,7 +495,24 @@ class TadoApiResetSensor(SensorEntity):
             if not data:
                 self._attr_available = False
                 return
-                
+            
+            # v2.0.1: Read test_mode from ratelimit.json (Single Source of Truth)
+            self._test_mode = data.get("test_mode", False)
+            
+            # v2.0.1: Read test_mode_start_time for display
+            test_mode_start = data.get("test_mode_start_time")
+            if test_mode_start and self._test_mode:
+                try:
+                    start_time = datetime.fromisoformat(
+                        test_mode_start.replace('Z', '+00:00')
+                    )
+                    start_local = dt_util.as_local(start_time)
+                    self._test_mode_start_time = start_local.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    self._test_mode_start_time = test_mode_start
+            else:
+                self._test_mode_start_time = None
+            
             self._reset_human = data.get("reset_human")
             self._reset_seconds = data.get("reset_seconds")
             self._status = data.get("status", "unknown")
@@ -539,12 +569,9 @@ class TadoApiResetSensor(SensorEntity):
                         last_sync = datetime.fromisoformat(last_updated).replace(tzinfo=timezone.utc)
                     
                     # Get current polling interval from config
-                    from homeassistant.config_entries import ConfigEntry
-                    entries = self.hass.config_entries.async_entries(DOMAIN) if self.hass else []
-                    if entries:
-                        from .config_manager import ConfigurationManager
-                        from . import get_polling_interval
-                        config_manager = ConfigurationManager(entries[0])
+                    from . import get_polling_interval
+                    config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+                    if config_manager:
                         self._current_interval = get_polling_interval(config_manager)
                         
                         # Calculate next poll time and convert to local timezone
@@ -580,6 +607,7 @@ class TadoApiLimitSensor(SensorEntity):
         self._attr_available = False
         self._attr_native_value = None
         self._attr_extra_state_attributes = {}
+        self._test_mode = False  # v2.0.1: Test Mode indicator
     
     def update(self):
         try:
@@ -588,8 +616,20 @@ class TadoApiLimitSensor(SensorEntity):
             if data:
                 self._attr_native_value = data.get("limit")
                 self._attr_available = self._attr_native_value is not None
+                # v2.0.1: Read test_mode from ratelimit.json
+                self._test_mode = data.get("test_mode", False)
             else:
                 self._attr_available = False
+                self._test_mode = False
+            
+            # Build extra state attributes
+            extra_attrs = {
+                "test_mode": self._test_mode,  # v2.0.1: Test Mode indicator
+            }
+            
+            # v2.0.1: Add Test Mode info if enabled
+            if self._test_mode and data:
+                extra_attrs["test_mode_info"] = "Simulated 100-call limit"
             
             # Load recent API calls from history (last 100 calls only to avoid DB size issues)
             try:
@@ -629,20 +669,22 @@ class TadoApiLimitSensor(SensorEntity):
                         if datetime.fromisoformat(call["timestamp"]).replace(tzinfo=dt_util.UTC) > cutoff
                     )
                     
-                    self._attr_extra_state_attributes = {
+                    extra_attrs.update({
                         "recent_calls": recent_calls,
                         "recent_calls_count": len(recent_calls),
                         "last_24h_count": last_24h_count,
                         "total_calls_tracked": len(all_calls)
-                    }
+                    })
             except Exception as e:
                 _LOGGER.debug(f"Failed to load API call history: {e}")
-                self._attr_extra_state_attributes = {
+                extra_attrs.update({
                     "recent_calls": [],
                     "recent_calls_count": 0,
                     "last_24h_count": 0,
                     "total_calls_tracked": 0
-                }
+                })
+            
+            self._attr_extra_state_attributes = extra_attrs
         except Exception:
             self._attr_available = False
 
@@ -837,12 +879,9 @@ class TadoNextSyncSensor(SensorEntity):
                 last_sync = datetime.fromisoformat(last_updated).replace(tzinfo=timezone.utc)
             
             # Get current polling interval from config
-            from homeassistant.config_entries import ConfigEntry
-            entries = self.hass.config_entries.async_entries(DOMAIN) if self.hass else []
-            if entries:
-                from .config_manager import ConfigurationManager
-                from . import get_polling_interval
-                config_manager = ConfigurationManager(entries[0])
+            from . import get_polling_interval
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if config_manager:
                 self._current_interval = get_polling_interval(config_manager)
                 
                 # Calculate next sync time
@@ -887,6 +926,7 @@ class TadoPollingIntervalSensor(SensorEntity):
         self._day_interval = None
         self._night_interval = None
         self._is_night_mode = None
+        self._test_mode = False  # v2.0.1: Test Mode indicator
     
     @property
     def extra_state_attributes(self):
@@ -895,30 +935,35 @@ class TadoPollingIntervalSensor(SensorEntity):
             "day_interval": self._day_interval,
             "night_interval": self._night_interval,
             "is_night_mode": self._is_night_mode,
+            "test_mode": self._test_mode,  # v2.0.1: Test Mode indicator
         }
     
     def update(self):
         try:
-            from homeassistant.config_entries import ConfigEntry
             from datetime import datetime
+            from . import get_polling_interval, DEFAULT_DAY_INTERVAL, DEFAULT_NIGHT_INTERVAL
+            from . import _calculate_adaptive_interval
             
-            entries = self.hass.config_entries.async_entries(DOMAIN) if self.hass else []
-            if not entries:
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if not config_manager:
                 self._attr_available = False
                 return
             
-            from .config_manager import ConfigurationManager
-            from . import get_polling_interval
-            
-            config_manager = ConfigurationManager(entries[0])
+            # v2.0.1: Read test_mode from ratelimit.json (Single Source of Truth)
+            ratelimit_data = load_ratelimit_file()
+            self._test_mode = ratelimit_data.get("test_mode", False) if ratelimit_data else False
             
             # Get current interval
             self._attr_native_value = get_polling_interval(config_manager)
             self._attr_available = True
             
-            # Get day/night intervals
-            self._day_interval = config_manager.get_custom_day_interval()
-            self._night_interval = config_manager.get_custom_night_interval()
+            # Get custom day/night intervals (None if not set by user)
+            custom_day = config_manager.get_custom_day_interval()
+            custom_night = config_manager.get_custom_night_interval()
+            
+            # v2.0.1: For display, show effective intervals (with defaults)
+            self._day_interval = custom_day if custom_day else DEFAULT_DAY_INTERVAL
+            self._night_interval = custom_night if custom_night else DEFAULT_NIGHT_INTERVAL
             
             # Check if currently in night mode based on config hours
             current_hour = datetime.now().hour
@@ -926,15 +971,40 @@ class TadoPollingIntervalSensor(SensorEntity):
             night_start = config_manager.get_night_start_hour()
             self._is_night_mode = not (day_start <= current_hour < night_start)
             
-            # Determine source
-            if self._day_interval and self._night_interval:
-                self._source = "Custom (Day/Night)"
-            elif self._day_interval:
-                self._source = "Custom (Day only)"
-            elif self._night_interval:
-                self._source = "Custom (Night only)"
+            # v2.0.1: Determine source more accurately
+            # Check if adaptive is overriding the baseline interval
+            adaptive_interval = None
+            if ratelimit_data:
+                try:
+                    adaptive_interval = _calculate_adaptive_interval(ratelimit_data, config_manager)
+                except Exception:
+                    pass
+            
+            baseline_interval = self._night_interval if self._is_night_mode else self._day_interval
+            
+            # v2.0.1: Determine source based on what's actually being used
+            # When no custom intervals set, we use pure adaptive (Day/Night aware)
+            user_set_custom = custom_day is not None or custom_night is not None
+            
+            if user_set_custom:
+                # User has custom intervals
+                if adaptive_interval and adaptive_interval > baseline_interval:
+                    self._source = "Adaptive (protecting quota)"
+                elif custom_day and custom_night:
+                    self._source = "Custom (Day/Night)"
+                elif custom_day:
+                    self._source = "Custom (Day only)"
+                else:
+                    self._source = "Custom (Night only)"
             else:
-                self._source = "Adaptive (Smart Polling)"
+                # No custom intervals - using pure adaptive (Day/Night aware)
+                if adaptive_interval is not None:
+                    if self._is_night_mode:
+                        self._source = "Adaptive (Night - fixed 120 min)"
+                    else:
+                        self._source = "Adaptive (Day)"
+                else:
+                    self._source = "Default (Day/Night)"
                 
         except Exception as e:
             _LOGGER.debug(f"Failed to update Polling Interval sensor: {e}")
@@ -2305,19 +2375,15 @@ class TadoSmartComfortTargetSensor(TadoBaseSensor):
     def update(self):
         """Update Smart Comfort target using ASHRAE 55 Adaptive Comfort Model."""
         try:
-            from .config_manager import ConfigurationManager
-            
             if not self.hass:
                 self._attr_available = False
                 return
             
-            # Get config
-            entries = self.hass.config_entries.async_entries(DOMAIN)
-            if not entries:
+            # Get config_manager from hass.data (real-time config access)
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if not config_manager:
                 self._attr_available = False
                 return
-            
-            config_manager = ConfigurationManager(entries[0])
             
             # Get zone data
             zone_data = self._get_zone_data()
@@ -2616,10 +2682,12 @@ class TadoMoldRiskSensor(TadoBaseSensor):
             self._room_temp = room_temp
             self._effective_temp = self._get_effective_temperature(room_temp)
             
-            # Calculate dew point using Magnus-Tetens formula (using effective temp)
-            self._dew_point = _calculate_dew_point(self._effective_temp, self._humidity)
+            # v2.0.1 FIX: Calculate dew point using ROOM temperature (not surface temp)
+            # Dew point is a property of the air, not the surface
+            self._dew_point = _calculate_dew_point(room_temp, self._humidity)
             
-            # Calculate margin (difference between effective temperature and dew point)
+            # Calculate margin (difference between effective/surface temperature and dew point)
+            # This tells us how close the surface is to condensation
             self._margin = round(self._effective_temp - self._dew_point, 1)
             
             # Determine risk level
@@ -2651,17 +2719,14 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         Returns:
             Effective temperature for mold risk calculation
         """
-        from .config_manager import ConfigurationManager
         from .const import WINDOW_U_VALUES, DEFAULT_WINDOW_TYPE
         
         try:
-            # Get config manager
-            entries = self.hass.config_entries.async_entries(DOMAIN)
-            if not entries:
+            # Get config_manager from hass.data (real-time config access)
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if not config_manager:
                 self._temperature_source = "room_average"
                 return room_temp
-            
-            config_manager = ConfigurationManager(entries[0])
             
             # Try Tier 1: Surface temperature estimation
             outdoor_entity = config_manager.get_outdoor_temp_entity()
@@ -2790,6 +2855,189 @@ class TadoMoldRiskSensor(TadoBaseSensor):
             return None
 
 
+class TadoMoldRiskPercentageSensor(TadoBaseSensor):
+    """Mold risk percentage sensor - surface relative humidity.
+    
+    v2.0.1: Exposes the mold risk percentage (surface RH) as a dedicated sensor
+    for historical tracking and graphing in Home Assistant.
+    
+    Uses the same calculation as TadoMoldRiskSensor:
+    - 2-tier temperature source (surface estimation or room average)
+    - Magnus-Tetens formula for dew point and surface RH
+    
+    State: Surface relative humidity as percentage (0-100)
+    
+    Mold typically grows when surface RH exceeds ~70-80%.
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "HEATING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Mold Risk Percentage"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_mold_risk_percentage"
+        self._attr_icon = "mdi:water-percent"
+        self._attr_device_class = SensorDeviceClass.HUMIDITY
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        
+        # Attributes
+        self._room_temp: float | None = None
+        self._effective_temp: float | None = None
+        self._humidity: float | None = None
+        self._dew_point: float | None = None
+        self._temperature_source: str = "unknown"
+        self._outdoor_temp: float | None = None
+        self._surface_temp: float | None = None
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "room_temperature": self._room_temp,
+            "effective_temperature": self._effective_temp,
+            "humidity": self._humidity,
+            "dew_point": self._dew_point,
+            "temperature_source": self._temperature_source,
+            "zone_type": self._zone_type,
+        }
+    
+    def update(self):
+        """Update mold risk percentage based on temperature and humidity.
+        
+        Uses the same 2-tier temperature source strategy as TadoMoldRiskSensor.
+        """
+        try:
+            zone_data = self._get_zone_data()
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            # Get humidity from zone data
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            self._humidity = (sensor_data.get('humidity') or {}).get('percentage')
+            
+            if self._humidity is None:
+                self._attr_available = False
+                return
+            
+            # Get room temperature (always needed as fallback)
+            room_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            if room_temp is None:
+                self._attr_available = False
+                return
+            
+            # Store room temp and determine effective temp (Tier 1 or Tier 2)
+            self._room_temp = room_temp
+            self._effective_temp = self._get_effective_temperature(room_temp)
+            
+            # v2.0.1 FIX: Calculate dew point using ROOM temperature (not surface temp)
+            # Dew point is a property of the air, not the surface
+            self._dew_point = _calculate_dew_point(room_temp, self._humidity)
+            
+            # Calculate surface RH (mold risk percentage)
+            surface_rh = self._calculate_surface_rh()
+            if surface_rh is None:
+                self._attr_available = False
+                return
+            
+            self._attr_native_value = surface_rh
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update mold risk percentage for zone {self._zone_id}: {e}")
+            self._attr_available = False
+    
+    def _get_effective_temperature(self, room_temp: float) -> float:
+        """Get effective temperature for mold risk calculation.
+        
+        2-tier strategy:
+        - Tier 1: Surface temperature estimation (if outdoor temp + window type available)
+        - Tier 2: Room average temperature (fallback)
+        """
+        from .const import WINDOW_U_VALUES, DEFAULT_WINDOW_TYPE
+        
+        try:
+            # Get config_manager from hass.data (real-time config access)
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if not config_manager:
+                self._temperature_source = "room_average"
+                return room_temp
+            
+            outdoor_entity = config_manager.get_outdoor_temp_entity()
+            
+            if outdoor_entity:
+                self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity, config_manager.get_use_feels_like())
+                
+                if self._outdoor_temp is not None:
+                    window_type = config_manager.get_mold_risk_window_type()
+                    u_value = WINDOW_U_VALUES.get(window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+                    self._surface_temp = _calculate_surface_temperature(room_temp, self._outdoor_temp, u_value)
+                    self._temperature_source = "surface_estimation"
+                    return self._surface_temp
+            
+            self._temperature_source = "room_average"
+            self._outdoor_temp = None
+            self._surface_temp = None
+            return room_temp
+            
+        except Exception as e:
+            _LOGGER.debug(f"Error determining temperature source for zone {self._zone_id}: {e}")
+            self._temperature_source = "room_average"
+            self._outdoor_temp = None
+            self._surface_temp = None
+            return room_temp
+    
+    def _get_outdoor_temperature(self, entity_id: str, use_feels_like: bool = False) -> float | None:
+        """Get outdoor temperature from configured entity."""
+        if not self.hass or not entity_id:
+            return None
+        
+        try:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ('unknown', 'unavailable'):
+                return None
+            
+            if entity_id.startswith('weather.'):
+                if use_feels_like:
+                    temp = state.attributes.get('apparent_temperature')
+                    if temp is None:
+                        temp = state.attributes.get('feels_like')
+                    if temp is None:
+                        temp = state.attributes.get('temperature')
+                else:
+                    temp = state.attributes.get('temperature')
+                
+                if temp is not None:
+                    return float(temp)
+            else:
+                try:
+                    return float(state.state)
+                except (ValueError, TypeError):
+                    return None
+                    
+        except Exception as e:
+            _LOGGER.debug(f"Error getting outdoor temperature from {entity_id}: {e}")
+            return None
+        
+        return None
+    
+    def _calculate_surface_rh(self) -> int | None:
+        """Calculate relative humidity at surface (mold risk percentage)."""
+        if self._effective_temp is None or self._dew_point is None:
+            return None
+        
+        try:
+            import math
+            
+            def svp(temp: float) -> float:
+                return 6.112 * math.exp((17.67 * temp) / (temp + 243.5))
+            
+            surface_rh = (svp(self._dew_point) / svp(self._effective_temp)) * 100
+            return round(min(100, max(0, surface_rh)))
+            
+        except Exception as e:
+            _LOGGER.debug(f"Error calculating surface RH for zone {self._zone_id}: {e}")
+            return None
+
+
 class TadoComfortLevelSensor(TadoBaseSensor):
     """Comfort level sensor using Adaptive Comfort model.
     
@@ -2901,12 +3149,11 @@ class TadoComfortLevelSensor(TadoBaseSensor):
             return None
         
         try:
-            from .config_manager import ConfigurationManager
-            entries = self.hass.config_entries.async_entries(DOMAIN)
-            if not entries:
+            # Get config_manager from hass.data (real-time config access)
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if not config_manager:
                 return None
             
-            config_manager = ConfigurationManager(entries[0])
             entity_id = config_manager.get_outdoor_temp_entity()
             use_feels_like = config_manager.get_use_feels_like()
             

@@ -84,10 +84,17 @@ class TadoResumeAllSchedulesButton(ButtonEntity):
         self._attr_icon = "mdi:calendar-refresh"
     
     async def async_press(self) -> None:
-        """Handle button press - resume schedules for all zones."""
+        """Handle button press - resume schedules for all zones.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        v2.0.1: DRY refactor - uses shared async_trigger_immediate_refresh().
+        """
         from .async_api import get_async_client
         from .data_loader import load_zones_info_file
-        from .immediate_refresh_handler import get_handler
+        from . import async_trigger_immediate_refresh
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         _LOGGER.info("Resume All Schedules button pressed")
         
@@ -123,11 +130,23 @@ class TadoResumeAllSchedulesButton(ButtonEntity):
             _LOGGER.warning(f"Resume All Schedules: {success_count} succeeded, {fail_count} failed")
         
         # Trigger immediate refresh to update all entities
-        try:
-            handler = get_handler(self.hass)
-            await handler.trigger_refresh(self.entity_id, "resume_all_schedules", force=True, skip_debounce=True)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+        await async_trigger_immediate_refresh(
+            self.hass, self.entity_id, "resume_all_schedules", force=True, skip_debounce=True
+        )
+    
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check if bootstrap reserve is depleted and block action if so.
+        
+        v2.0.1: Bootstrap Reserve - ensures 3 API calls are ALWAYS reserved
+        for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If bootstrap reserve is depleted
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, "Immediate Refresh")
 
 
 class TadoRefreshACCapabilitiesButton(ButtonEntity):
@@ -372,9 +391,16 @@ class TadoBoostButton(ButtonEntity):
         self._attr_icon = "mdi:fire"
     
     async def async_press(self) -> None:
-        """Handle button press - boost heating to max for 30 minutes."""
+        """Handle button press - boost heating to max for 30 minutes.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        v2.0.1: DRY refactor - uses shared async_trigger_immediate_refresh().
+        """
         from .async_api import get_async_client
-        from .immediate_refresh_handler import get_handler
+        from . import async_trigger_immediate_refresh
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         _LOGGER.info(f"Boost button pressed for {self._zone_name}")
         
@@ -402,13 +428,23 @@ class TadoBoostButton(ButtonEntity):
         if api_success:
             _LOGGER.info(f"Boost activated: {self._zone_name} set to {BOOST_TEMPERATURE}°C for {BOOST_DURATION_MINUTES} minutes")
             # Trigger immediate refresh
-            try:
-                handler = get_handler(self.hass)
-                await handler.trigger_refresh(self.entity_id, "boost_activated")
-            except Exception as e:
-                _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+            await async_trigger_immediate_refresh(self.hass, self.entity_id, "boost_activated")
         else:
             _LOGGER.error(f"Boost failed for {self._zone_name}")
+    
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check if bootstrap reserve is depleted and block action if so.
+        
+        v2.0.1: Bootstrap Reserve - ensures 3 API calls are ALWAYS reserved
+        for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If bootstrap reserve is depleted
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, f"Boost {self._zone_name}")
 
 
 class TadoSmartBoostButton(ButtonEntity):
@@ -490,9 +526,16 @@ class TadoSmartBoostButton(ButtonEntity):
         return SMART_BOOST_DEFAULT_RATE
     
     async def async_press(self) -> None:
-        """Handle button press - smart boost with calculated duration."""
+        """Handle button press - smart boost with calculated duration.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        v2.0.1: DRY refactor - uses shared async_trigger_immediate_refresh().
+        """
         from .async_api import get_async_client
-        from .immediate_refresh_handler import get_handler
+        from . import async_trigger_immediate_refresh
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         _LOGGER.info(f"Smart Boost button pressed for {self._zone_name}")
         
@@ -564,10 +607,20 @@ class TadoSmartBoostButton(ButtonEntity):
                 f"for {duration_minutes} minutes (rate: {heating_rate}°C/h)"
             )
             # Trigger immediate refresh
-            try:
-                handler = get_handler(self.hass)
-                await handler.trigger_refresh(self.entity_id, "smart_boost_activated")
-            except Exception as e:
-                _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+            await async_trigger_immediate_refresh(self.hass, self.entity_id, "smart_boost_activated")
         else:
             _LOGGER.error(f"Smart Boost failed for {self._zone_name}")
+    
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check if bootstrap reserve is depleted and block action if so.
+        
+        v2.0.1: Bootstrap Reserve - ensures 3 API calls are ALWAYS reserved
+        for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If bootstrap reserve is depleted
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, f"Smart Boost {self._zone_name}")

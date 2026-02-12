@@ -4,6 +4,32 @@
 
 ---
 
+## v2.0.1 (2026-02-12) - Mold Risk Percentage Sensor, Hot Water Fix & Bootstrap Reserve
+
+### Bug Reports & Issue Reporters
+
+**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #98](https://github.com/hiall-fyi/tado_ce/issues/98), [Issue #99](https://github.com/hiall-fyi/tado_ce/issues/99)
+- Reported hot water UI "jumping back" after temperature change
+- Identified that water_heater.py was missing optimistic update protection
+- Reported Quota Reserve not preventing API limit exceeded
+- Proposed Bootstrap Reserve concept for auto-recovery after API reset
+- Suggested persistent notification when API limit reached
+
+**[@Claeysjens](https://github.com/Claeysjens)** - [Issue #100](https://github.com/hiall-fyi/tado_ce/issues/100)
+- Reported climate entities unavailable after v2.0.0 upgrade
+- Provided detailed logs and data files that identified the root cause
+- Quick bug report that caught this critical issue within hours of release
+
+### What Was Added/Fixed
+
+- ✅ **Issue #90**: Mold Risk Percentage Sensor - `sensor.{zone}_mold_risk_percentage` for historical tracking
+- ✅ **Issue #98**: Hot Water 3-layer defense - full parity with climate entities for optimistic updates
+- ✅ **Issue #99**: Bootstrap Reserve Protection - hard limit of 3 calls for auto-recovery
+- ✅ **Issue #99**: Persistent notification when API limit reached
+- ✅ **Issue #100**: Fixed per-home file auto-detection matching wrong files (strict regex pattern)
+
+---
+
 ## v2.0.0 (2026-02-09) - Smart Polling, Mold Risk Enhancement & Thermal Analytics
 
 ### Feature Ideas & Suggestions

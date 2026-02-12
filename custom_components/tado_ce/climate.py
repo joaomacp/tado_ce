@@ -196,22 +196,6 @@ class TadoClimate(ClimateEntity):
 
     # ========== v1.10.0: Helper Methods (Updated for Issue #44 fix) ==========
     
-    def _get_debounce_window(self) -> float:
-        """Get the optimistic update debounce window in seconds.
-        
-        v1.9.6: Extracted to helper method to reduce code duplication.
-        
-        Returns:
-            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
-        """
-        try:
-            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-            if config_manager:
-                return float(config_manager.get_refresh_debounce_seconds()) + 2.0
-        except Exception:
-            pass
-        return 17.0  # Default fallback (15s debounce + 2s buffer)
-    
     def _clear_optimistic_state(self):
         """Clear all optimistic state tracking.
         
@@ -554,7 +538,11 @@ class TadoClimate(ClimateEntity):
         Uses 1 API call to set presence lock.
         
         v1.9.2: Added timeout protection for consistency with other methods.
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         client = get_async_client(self.hass)
         state = "AWAY" if preset_mode == PRESET_AWAY else "HOME"
         
@@ -590,6 +578,8 @@ class TadoClimate(ClimateEntity):
         
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
         temperature = kwargs.get(ATTR_TEMPERATURE)
         hvac_mode = kwargs.get(ATTR_HVAC_MODE)
@@ -611,6 +601,9 @@ class TadoClimate(ClimateEntity):
         
         if temperature is None:
             return
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         # v1.10.0: Optimistic update BEFORE API call (Issue #44 fix)
         old_temp = self._attr_target_temperature
@@ -668,7 +661,12 @@ class TadoClimate(ClimateEntity):
         
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         client = get_async_client(self.hass)
         
         if hvac_mode == HVACMode.HEAT:
@@ -787,13 +785,12 @@ class TadoClimate(ClimateEntity):
                 self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
-        """Trigger immediate refresh after state change."""
-        try:
-            from .immediate_refresh_handler import get_handler
-            handler = get_handler(self.hass)
-            await handler.trigger_refresh(self.entity_id, reason)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+        """Trigger immediate refresh after state change.
+        
+        v2.0.1: DRY refactor - delegates to shared async_trigger_immediate_refresh().
+        """
+        from . import async_trigger_immediate_refresh
+        await async_trigger_immediate_refresh(self.hass, self.entity_id, reason)
 
     async def async_set_timer(self, temperature: float, duration_minutes: int = None, overlay: str = None) -> bool:
         """Set temperature with timer or overlay type.
@@ -802,7 +799,12 @@ class TadoClimate(ClimateEntity):
             temperature: Target temperature in Celsius
             duration_minutes: Duration in minutes (for TIMER termination)
             overlay: Overlay type - 'next_time_block' for TADO_MODE, None for MANUAL
+            
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         client = get_async_client(self.hass)
         
         setting = {
@@ -870,6 +872,20 @@ class TadoClimate(ClimateEntity):
             )
         except Exception as e:
             _LOGGER.debug(f"Failed to record smart comfort data for {self._zone_name}: {e}")
+
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check bootstrap reserve and raise error if quota critically low.
+        
+        v2.0.1: Bootstrap Reserve - blocks ALL actions (including manual) when quota
+        falls to the absolute minimum needed for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If quota is at bootstrap reserve level
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, self._zone_name)
 
 
 class TadoACClimate(ClimateEntity):
@@ -1006,22 +1022,6 @@ class TadoACClimate(ClimateEntity):
         self._unsub_zones_updated = None
 
     # ========== v1.10.0: Helper Methods (Updated for Issue #44 fix) ==========
-    
-    def _get_debounce_window(self) -> float:
-        """Get the optimistic update debounce window in seconds.
-        
-        v1.10.0: Extracted to helper method to reduce code duplication.
-        
-        Returns:
-            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
-        """
-        try:
-            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-            if config_manager:
-                return float(config_manager.get_refresh_debounce_seconds()) + 2.0
-        except Exception:
-            pass
-        return 17.0  # Default fallback (15s debounce + 2s buffer)
     
     def _clear_optimistic_state(self):
         """Clear all optimistic state tracking.
@@ -1328,6 +1328,8 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
         temperature = kwargs.get(ATTR_TEMPERATURE)
         hvac_mode = kwargs.get(ATTR_HVAC_MODE)
@@ -1350,6 +1352,9 @@ class TadoACClimate(ClimateEntity):
         
         if temperature is None:
             return
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         # Convert hvac_mode to Tado mode for the overlay
         tado_mode = HA_TO_TADO_HVAC_MODE.get(hvac_mode) if hvac_mode else None
@@ -1403,7 +1408,12 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         client = get_async_client(self.hass)
         
         if hvac_mode == HVACMode.OFF:
@@ -1542,7 +1552,12 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         # Optimistic update BEFORE API call
         old_fan = self._attr_fan_mode
         old_mode = self._attr_hvac_mode
@@ -1597,7 +1612,12 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.2: Changed from fire-and-forget to await pattern to fix grey loading state issue (#44).
         Service call now awaits API completion (with timeout) for proper HA Frontend state sync.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         if swing_mode == "off":
             v_swing, h_swing = "OFF", "OFF"
         elif swing_mode == "vertical":
@@ -1653,13 +1673,12 @@ class TadoACClimate(ClimateEntity):
             self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
-        """Trigger immediate refresh after state change."""
-        try:
-            from .immediate_refresh_handler import get_handler
-            handler = get_handler(self.hass)
-            await handler.trigger_refresh(self.entity_id, reason)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+        """Trigger immediate refresh after state change.
+        
+        v2.0.1: DRY refactor - delegates to shared async_trigger_immediate_refresh().
+        """
+        from . import async_trigger_immediate_refresh
+        await async_trigger_immediate_refresh(self.hass, self.entity_id, reason)
 
     async def _async_set_ac_overlay(self, temperature: float = None, mode: str = None, 
                                     fan_level: str = None, vertical_swing: str = None,
@@ -1792,3 +1811,17 @@ class TadoACClimate(ClimateEntity):
             )
         except Exception as e:
             _LOGGER.debug(f"Failed to record smart comfort data for AC {self._zone_name}: {e}")
+
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check bootstrap reserve and raise error if quota critically low.
+        
+        v2.0.1: Bootstrap Reserve - blocks ALL actions (including manual) when quota
+        falls to the absolute minimum needed for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If quota is at bootstrap reserve level
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, f"AC {self._zone_name}")

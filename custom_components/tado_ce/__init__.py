@@ -12,6 +12,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
@@ -76,34 +77,64 @@ def _get_calls_per_sync(config_manager: ConfigurationManager) -> int:
 
 
 def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: ConfigurationManager) -> int:
-    """Calculate adaptive polling interval based on remaining quota.
+    """Calculate adaptive polling interval based on remaining quota, Day/Night period, and Reset Time.
     
     v1.11.0: Pure adaptive polling - distributes remaining calls over remaining time.
-    Works universally for ANY quota tier (100, 200, 500, 5000, 20000, etc.)
+    Works universally for ANY quota tier (100, 5000, 20000, etc.)
     
-    Formula: interval = (time_left / remaining) / safety_buffer
+    v2.0.1: Simplified - reads directly from ratelimit_data which already contains
+    simulated values when Test Mode is ON (Single Source of Truth in ratelimit.json).
+    
+    v2.0.1: Day/Night aware adaptive polling:
+    - Night period: Fixed MAX_POLLING_INTERVAL (120 min) to conserve quota
+    - Day period: Adaptive based on remaining quota after reserving Night calls
+    - Respects existing quota protection (SAFETY_BUFFER, RESERVE_CALLS)
+    - Considers Reset Time: if reset is soon, use quota more aggressively
     
     Args:
-        ratelimit_data: Rate limit data with 'remaining' and 'reset_seconds'
+        ratelimit_data: Rate limit data with 'remaining', 'reset_seconds', 'last_reset_utc'
+                        (already simulated when Test Mode is ON)
         config_manager: Configuration manager for feature settings
         
     Returns:
         Polling interval in minutes (constrained by MIN/MAX)
     """
-    reset_seconds = ratelimit_data.get("reset_seconds", 86400)
-    used = ratelimit_data.get("used", 0)
+    from homeassistant.util import dt as dt_util
     
-    # Apply Test Mode limit (override API remaining with 100 - used)
-    if config_manager.get_test_mode_enabled():
-        test_mode_limit = 100
-        remaining = max(0, test_mode_limit - used)
+    # v2.0.1: Read directly from ratelimit_data (already simulated when Test Mode ON)
+    remaining = ratelimit_data.get("remaining", 100)
+    test_mode = ratelimit_data.get("test_mode", False)
+    
+    # v2.0.1: Get reset time info
+    reset_seconds = ratelimit_data.get("reset_seconds", 86400)
+    last_reset_utc = ratelimit_data.get("last_reset_utc")
+    
+    # Dynamically calculate reset_seconds from last_reset_utc for accuracy
+    if last_reset_utc:
+        try:
+            last_reset = datetime.fromisoformat(last_reset_utc.replace('Z', '+00:00'))
+            if last_reset.tzinfo is None:
+                last_reset = last_reset.replace(tzinfo=timezone.utc)
+            
+            next_reset = last_reset + timedelta(hours=24)
+            now_utc = datetime.now(timezone.utc)
+            
+            # If next_reset is in the past, add 24h until it's in the future
+            while next_reset <= now_utc:
+                next_reset += timedelta(hours=24)
+            
+            calculated_reset_seconds = int((next_reset - now_utc).total_seconds())
+            if calculated_reset_seconds > 0:
+                reset_seconds = calculated_reset_seconds
+        except Exception as e:
+            _LOGGER.debug(f"Failed to calculate dynamic reset_seconds: {e}")
+    
+    reset_hours = reset_seconds / 3600
+    
+    if test_mode:
         _LOGGER.debug(
-            f"Tado CE: Test Mode enabled - using {remaining} remaining "
-            f"(100 limit - {used} used), ignoring API remaining"
+            f"Tado CE: Test Mode - using simulated remaining={remaining} from ratelimit.json"
         )
-    else:
-        # Use actual API remaining
-        remaining = ratelimit_data.get("remaining", 100)
     
     # Account for optional features (weather, mobile devices)
     calls_per_sync = _get_calls_per_sync(config_manager)
@@ -111,38 +142,104 @@ def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: Configura
     
     # Safety check: if no remaining quota, use max interval
     if effective_remaining <= 0:
-        _LOGGER.warning(
-            f"Tado CE: No remaining quota. Using max interval: {MAX_POLLING_INTERVAL} min"
+        _LOGGER.debug(
+            f"Tado CE: No remaining quota (effective_remaining={effective_remaining}). "
+            f"Using max interval: {MAX_POLLING_INTERVAL} min"
         )
         return MAX_POLLING_INTERVAL
     
-    # Pure adaptive: distribute remaining calls over remaining time
-    interval_minutes = (reset_seconds / 60) / effective_remaining
+    # v2.0.1: Day/Night aware adaptive polling with Reset Time consideration
+    # Get current time and Day/Night settings
+    now = dt_util.now()
+    current_hour = now.hour
+    day_start = config_manager.get_day_start_hour()
+    night_start = config_manager.get_night_start_hour()
     
-    # Apply safety buffer (reserve 10% for manual calls)
-    interval_minutes = interval_minutes / POLLING_SAFETY_BUFFER
+    # Check if currently in Day or Night period
+    is_day = is_daytime(config_manager)
+    
+    # Calculate hours until Night Start (for Day period)
+    if is_day:
+        if current_hour < night_start:
+            hours_until_night = night_start - current_hour
+        else:
+            hours_until_night = 0
+    else:
+        hours_until_night = 0
+    
+    # Calculate Night duration (for quota reservation)
+    if night_start > day_start:
+        night_duration = 24 - night_start + day_start
+    else:
+        night_duration = day_start - night_start
+    
+    # v2.0.1: Key insight - if Reset Time is before Night Start, we don't need to reserve Night quota!
+    # Because quota will reset and we'll have fresh quota for Night.
+    
+    # Calculate usable quota after safety buffer and reserve
+    usable_quota = effective_remaining * POLLING_SAFETY_BUFFER - QUOTA_RESERVE_CALLS
+    
+    # v2.0.1: Night period uses fixed MAX_INTERVAL
+    if not is_day:
+        _LOGGER.debug(
+            f"Tado CE Adaptive Polling (Night):\n"
+            f"  Period: Night (until {day_start:02d}:00)\n"
+            f"  Reset in: {reset_hours:.1f}h\n"
+            f"  Remaining: {remaining} calls\n"
+            f"  Using fixed interval: {MAX_POLLING_INTERVAL} min\n"
+            f"  Test Mode: {test_mode}"
+        )
+        return MAX_POLLING_INTERVAL
+    
+    # Day period: calculate adaptive interval
+    # Determine effective time window (until Reset or Night Start, whichever is sooner)
+    if reset_hours < hours_until_night:
+        # Reset is before Night Start - use all quota until reset, no need to reserve for Night
+        effective_hours = reset_hours
+        night_calls_needed = 0
+        time_boundary = f"Reset ({reset_hours:.1f}h)"
+    else:
+        # Night Start is before Reset - need to reserve quota for Night
+        effective_hours = hours_until_night
+        night_calls_needed = (night_duration * 60) / MAX_POLLING_INTERVAL
+        time_boundary = f"Night Start ({hours_until_night}h)"
+    
+    day_quota = max(0, usable_quota - night_calls_needed)
+    
+    if day_quota <= 0 or effective_hours <= 0:
+        _LOGGER.debug(
+            f"Tado CE: No Day quota available (day_quota={day_quota:.1f}, "
+            f"effective_hours={effective_hours:.1f}). Using max interval."
+        )
+        return MAX_POLLING_INTERVAL
+    
+    # Calculate Day interval
+    effective_minutes = effective_hours * 60
+    interval_minutes = effective_minutes / day_quota
     
     # Apply constraints (min 5, max 120)
-    interval_minutes = max(MIN_POLLING_INTERVAL, min(MAX_POLLING_INTERVAL, interval_minutes))
+    interval_minutes = int(max(MIN_POLLING_INTERVAL, min(MAX_POLLING_INTERVAL, interval_minutes)))
     
-    # Log adaptive calculation (DEBUG level for detailed info)
+    # Log adaptive calculation
     _LOGGER.debug(
-        f"Tado CE Adaptive Polling:\n"
-        f"  Remaining: {remaining} calls\n"
-        f"  Time left: {reset_seconds/3600:.1f}h\n"
-        f"  Calls per sync: {calls_per_sync}\n"
-        f"  Calculated: {(reset_seconds / 60) / effective_remaining:.1f} min\n"
-        f"  Applied: {int(interval_minutes)} min"
+        f"Tado CE Adaptive Polling (Day):\n"
+        f"  Period: Day (until {time_boundary})\n"
+        f"  Effective hours: {effective_hours:.1f}h\n"
+        f"  Night reserved: {night_calls_needed:.1f} calls\n"
+        f"  Remaining: {remaining} calls (effective: {effective_remaining:.0f})\n"
+        f"  Usable quota: {usable_quota:.0f} → Day quota: {day_quota:.0f}\n"
+        f"  Calculated: {effective_minutes / day_quota:.1f} min → Applied: {interval_minutes} min\n"
+        f"  Reset in: {reset_hours:.1f}h | Test Mode: {test_mode}"
     )
     
-    # Log warning if quota is very low
+    # Log at DEBUG level if quota is very low
     if remaining < 10:
-        _LOGGER.warning(
+        _LOGGER.debug(
             f"Tado CE: Low quota ({remaining} remaining). "
-            f"Using interval: {int(interval_minutes)} min"
+            f"Using interval: {interval_minutes} min"
         )
     
-    return int(interval_minutes)
+    return interval_minutes
 
 
 def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationManager) -> tuple[bool, str]:
@@ -154,8 +251,14 @@ def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationMana
     v2.0.1: Added reset time check - if reset time has passed, resume polling
     to detect the actual reset from API headers.
     
+    v2.0.1: Simplified - reads directly from ratelimit_data which already contains
+    simulated values when Test Mode is ON (Single Source of Truth in ratelimit.json).
+    
+    v2.0.1: Added quota_reserve_enabled check - allows users to disable protection.
+    
     Args:
         ratelimit_data: Rate limit data with 'remaining', 'used', 'reset_seconds'
+                        (already simulated when Test Mode is ON)
         config_manager: Configuration manager for feature settings
         
     Returns:
@@ -163,6 +266,18 @@ def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationMana
         - should_pause: True if polling should be paused
         - reason: Human-readable explanation (empty if not pausing)
     """
+    # v2.0.1: Check if Quota Reserve Protection is enabled
+    if not config_manager.get_quota_reserve_enabled():
+        _LOGGER.debug("Tado CE: Quota Reserve Protection disabled, not pausing polling")
+        return False, ""
+    
+    test_mode = ratelimit_data.get("test_mode", False)
+    _LOGGER.debug(
+        f"Tado CE: should_pause_polling called with "
+        f"used={ratelimit_data.get('used')}, remaining={ratelimit_data.get('remaining')}, "
+        f"test_mode={test_mode}"
+    )
+    
     # v2.0.1: Check if reset time has passed - if so, resume polling to detect reset
     last_reset_utc = ratelimit_data.get("last_reset_utc")
     if last_reset_utc:
@@ -181,20 +296,19 @@ def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationMana
         except Exception as e:
             _LOGGER.debug(f"Failed to check reset time: {e}")
     
-    # Get remaining quota based on mode
-    if config_manager.get_test_mode_enabled():
-        # Test Mode: use 100 as daily limit
-        used = ratelimit_data.get("used", 0)
-        remaining = max(0, 100 - used)
-        daily_limit = 100
-    else:
-        # Normal mode: use actual API values
-        remaining = ratelimit_data.get("remaining", 100)
-        used = ratelimit_data.get("used", 0)
-        daily_limit = remaining + used if (remaining + used) > 0 else 100
+    # v2.0.1: Read directly from ratelimit_data (already simulated when Test Mode ON)
+    # No need to recalculate - save_ratelimit() stores the correct values
+    remaining = ratelimit_data.get("remaining", 100)
+    daily_limit = ratelimit_data.get("limit", 100)
     
     # Calculate reserve threshold: max of absolute minimum or percentage
     reserve_threshold = max(QUOTA_RESERVE_CALLS, int(daily_limit * QUOTA_RESERVE_PERCENT))
+    
+    _LOGGER.debug(
+        f"Tado CE: should_pause_polling check - "
+        f"remaining={remaining}, limit={daily_limit}, threshold={reserve_threshold}, "
+        f"should_pause={remaining <= reserve_threshold}"
+    )
     
     # Check if we should pause
     if remaining <= reserve_threshold:
@@ -210,6 +324,222 @@ def should_pause_polling(ratelimit_data: dict, config_manager: ConfigurationMana
         return True, reason
     
     return False, ""
+
+
+def should_block_manual_action(ratelimit_data: dict, config_manager: ConfigurationManager) -> tuple[bool, str]:
+    """Check if manual actions should be blocked due to bootstrap reserve.
+    
+    v2.0.1: Bootstrap Reserve - blocks ALL actions (including manual) when quota
+    falls to the absolute minimum needed for auto-recovery after API reset.
+    
+    v2.0.1: Simplified - reads directly from ratelimit_data which already contains
+    simulated values when Test Mode is ON (Single Source of Truth in ratelimit.json).
+    
+    v2.0.1: Added quota_reserve_enabled check - allows users to disable protection.
+    
+    Args:
+        ratelimit_data: Rate limit data with 'remaining', 'used', 'reset_seconds'
+                        (already simulated when Test Mode is ON)
+        config_manager: Configuration manager for feature settings
+        
+    Returns:
+        Tuple of (should_block: bool, reason: str)
+        - should_block: True if manual actions should be blocked
+        - reason: Human-readable explanation (empty if not blocking)
+    """
+    from .const import QUOTA_BOOTSTRAP_CALLS
+    
+    # v2.0.1: Check if Quota Reserve Protection is enabled
+    if not config_manager.get_quota_reserve_enabled():
+        _LOGGER.debug("Tado CE: Quota Reserve Protection disabled, not blocking manual actions")
+        return False, ""
+    
+    # v2.0.1: Check if reset time has passed - if so, allow actions to detect reset
+    last_reset_utc = ratelimit_data.get("last_reset_utc")
+    if last_reset_utc:
+        try:
+            last_reset = datetime.fromisoformat(last_reset_utc.replace('Z', '+00:00'))
+            next_reset = last_reset + timedelta(hours=24)
+            now_utc = datetime.now(timezone.utc)
+            
+            # If next reset time has passed, allow actions to detect actual reset
+            if now_utc >= next_reset:
+                return False, ""
+        except Exception as e:
+            _LOGGER.debug(f"Failed to check reset time: {e}")
+    
+    # v2.0.1: Read directly from ratelimit_data (already simulated when Test Mode ON)
+    # No need to recalculate - save_ratelimit() stores the correct values
+    remaining = ratelimit_data.get("remaining", 100)
+    test_mode = ratelimit_data.get("test_mode", False)
+    
+    _LOGGER.debug(
+        f"Tado CE: should_block_manual_action check - "
+        f"remaining={remaining}, bootstrap_threshold={QUOTA_BOOTSTRAP_CALLS}, "
+        f"test_mode={test_mode}"
+    )
+    
+    # Check if we've hit the bootstrap reserve (hard limit)
+    if remaining <= QUOTA_BOOTSTRAP_CALLS:
+        reset_seconds = ratelimit_data.get("reset_seconds", 0)
+        hours = reset_seconds // 3600
+        minutes = (reset_seconds % 3600) // 60
+        
+        reason = (
+            f"API limit reached ({remaining} calls remaining). "
+            f"All actions blocked to preserve auto-recovery capability. "
+            f"Use the Tado app for emergency changes. "
+            f"Integration will auto-recover at reset in {hours}h {minutes}m."
+        )
+        return True, reason
+    
+    return False, ""
+
+
+async def async_check_bootstrap_reserve(hass: HomeAssistant) -> tuple[bool, str]:
+    """Async helper to check bootstrap reserve for service handlers.
+    
+    v2.0.1: Convenience wrapper that loads ratelimit data and config manager.
+    
+    Args:
+        hass: Home Assistant instance
+        
+    Returns:
+        Tuple of (should_block: bool, reason: str)
+    """
+    from .data_loader import load_ratelimit_file
+    
+    try:
+        config_manager = hass.data.get(DOMAIN, {}).get('config_manager')
+        if not config_manager:
+            return False, ""
+        
+        ratelimit_data = await hass.async_add_executor_job(load_ratelimit_file)
+        if not ratelimit_data:
+            return False, ""
+        
+        return should_block_manual_action(ratelimit_data, config_manager)
+    except Exception as e:
+        _LOGGER.debug(f"Failed to check bootstrap reserve: {e}")
+        return False, ""
+
+
+async def async_show_api_limit_notification(hass: HomeAssistant, message: str) -> None:
+    """Show a persistent notification when API limit is reached.
+    
+    v2.0.1: Persistent notification to inform user about API limit.
+    
+    Args:
+        hass: Home Assistant instance
+        message: Notification message
+    """
+    await hass.services.async_call(
+        "persistent_notification",
+        "create",
+        {
+            "title": "Tado CE: API Limit Reached",
+            "message": message + "\n\n**Tip:** Use the official Tado app for emergency temperature changes.",
+            "notification_id": "tado_ce_api_limit",
+        },
+    )
+
+
+async def async_check_bootstrap_reserve_or_raise(hass: HomeAssistant, entity_name: str = "") -> None:
+    """Check bootstrap reserve and raise HomeAssistantError if quota critically low.
+    
+    v2.0.1: DRY refactor - single shared function for all entities to check bootstrap reserve.
+    Consolidates duplicate _check_bootstrap_reserve() methods across climate, water_heater,
+    button, and switch entities.
+    
+    Args:
+        hass: Home Assistant instance
+        entity_name: Optional entity name for logging (e.g., "Living Room", "Hot Water")
+        
+    Raises:
+        HomeAssistantError: If quota is at bootstrap reserve level
+    """
+    from homeassistant.exceptions import HomeAssistantError
+    
+    should_block, reason = await async_check_bootstrap_reserve(hass)
+    if should_block:
+        log_name = f" for {entity_name}" if entity_name else ""
+        _LOGGER.warning(f"Tado CE: Blocking manual action{log_name} - {reason}")
+        await async_show_api_limit_notification(hass, reason)
+        raise HomeAssistantError(reason)
+
+
+async def async_trigger_immediate_refresh(
+    hass: HomeAssistant, 
+    entity_id: str, 
+    reason: str,
+    force: bool = False,
+    skip_debounce: bool = False
+) -> None:
+    """Trigger immediate refresh after state change.
+    
+    v2.0.1: DRY refactor - single shared function for all entities to trigger refresh.
+    Consolidates duplicate _async_trigger_immediate_refresh() methods across climate,
+    water_heater, switch, and button entities.
+    
+    Args:
+        hass: Home Assistant instance
+        entity_id: Entity ID that triggered the refresh
+        reason: Reason for the refresh (for logging)
+        force: If True, force refresh even if recently refreshed (for buttons)
+        skip_debounce: If True, skip debounce delay (for buttons)
+    """
+    try:
+        from .immediate_refresh_handler import get_handler
+        handler = get_handler(hass)
+        await handler.trigger_refresh(entity_id, reason, force=force, skip_debounce=skip_debounce)
+    except Exception as e:
+        _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+
+
+def get_optimistic_window(hass: HomeAssistant) -> float:
+    """Get the optimistic update window duration in seconds.
+    
+    v2.0.1: DRY refactor - single shared function for all entities to get optimistic window.
+    Consolidates duplicate _get_optimistic_window() methods across climate, water_heater,
+    and switch entities.
+    
+    The optimistic window = debounce_seconds + 2.0 seconds buffer.
+    During this window, entities ignore API updates to preserve optimistic state.
+    
+    Args:
+        hass: Home Assistant instance
+        
+    Returns:
+        Optimistic window duration in seconds (default: 17.0 = 15 + 2)
+    """
+    try:
+        config_manager = hass.data.get(DOMAIN, {}).get('config_manager')
+        if config_manager:
+            return float(config_manager.get_refresh_debounce_seconds()) + 2.0
+    except Exception:
+        pass
+    return 17.0  # Default: 15s debounce + 2s buffer
+
+
+async def async_dismiss_api_limit_notification(hass: HomeAssistant) -> None:
+    """Dismiss the API limit notification when quota is restored.
+    
+    v2.0.1: Called when API reset is detected.
+    
+    Args:
+        hass: Home Assistant instance
+    """
+    try:
+        await hass.services.async_call(
+            "persistent_notification",
+            "dismiss",
+            {
+                "notification_id": "tado_ce_api_limit",
+            },
+        )
+    except Exception:
+        pass  # Notification may not exist
+
 
 async def async_detect_reset_from_history(hass: HomeAssistant) -> datetime | None:
     """Detect API reset time from Home Assistant sensor history.
@@ -398,6 +728,9 @@ def get_polling_interval(config_manager: ConfigurationManager, cached_ratelimit:
     v1.11.0: Uses adaptive polling based on remaining quota and time until reset.
     Custom intervals are treated as targets, but adaptive polling can override if quota is low.
     
+    v2.0.1: Day/Night aware adaptive polling - always use adaptive interval when available.
+    Custom intervals are only used as override when explicitly set by user.
+    
     Args:
         config_manager: Configuration manager with polling settings
         cached_ratelimit: Pre-loaded ratelimit data (to avoid blocking I/O in async context)
@@ -407,12 +740,19 @@ def get_polling_interval(config_manager: ConfigurationManager, cached_ratelimit:
     """
     daytime = is_daytime(config_manager)
     
-    # Get custom interval (if set)
+    # v2.0.1: Check if user has explicitly set custom intervals
+    # Only use custom interval if user explicitly configured it (not default)
+    custom_day_interval = config_manager.get_custom_day_interval()
+    custom_night_interval = config_manager.get_custom_night_interval()
+    
+    user_set_custom = False
     custom_interval = None
-    if daytime:
-        custom_interval = config_manager.get_custom_day_interval()
-    else:
-        custom_interval = config_manager.get_custom_night_interval()
+    if daytime and custom_day_interval is not None:
+        custom_interval = custom_day_interval
+        user_set_custom = True
+    elif not daytime and custom_night_interval is not None:
+        custom_interval = custom_night_interval
+        user_set_custom = True
     
     # Calculate adaptive interval based on remaining quota
     adaptive_interval = None
@@ -433,27 +773,27 @@ def get_polling_interval(config_manager: ConfigurationManager, cached_ratelimit:
     except Exception as e:
         _LOGGER.debug(f"Could not calculate adaptive polling interval, using default: {e}")
     
-    # Decision logic: custom interval vs adaptive interval
-    if custom_interval is not None and adaptive_interval is not None:
-        # Both custom and adaptive intervals available
-        # Use the LONGER interval (more conservative) to protect quota
-        if adaptive_interval > custom_interval:
-            _LOGGER.warning(
-                f"Tado CE: Custom interval ({custom_interval} min) would exceed quota. "
-                f"Using adaptive interval ({adaptive_interval} min) to protect remaining calls."
-            )
-            return adaptive_interval
+    # v2.0.1: Decision logic - prioritize adaptive, respect user custom override
+    if adaptive_interval is not None:
+        if user_set_custom and custom_interval is not None:
+            # User explicitly set custom interval - use the LONGER one to protect quota
+            if adaptive_interval > custom_interval:
+                _LOGGER.warning(
+                    f"Tado CE: Custom interval ({custom_interval} min) would exceed quota. "
+                    f"Using adaptive interval ({adaptive_interval} min) to protect remaining calls."
+                )
+                return adaptive_interval
+            else:
+                # Custom interval is safe, use it
+                _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
+                return custom_interval
         else:
-            # Custom interval is safe
-            _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
-            return custom_interval
-    elif custom_interval is not None:
+            # No custom interval set - use pure adaptive (Day/Night aware)
+            return adaptive_interval
+    elif user_set_custom and custom_interval is not None:
         # Only custom interval available (no ratelimit data)
         _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
         return custom_interval
-    elif adaptive_interval is not None:
-        # Only adaptive interval available
-        return adaptive_interval
     else:
         # Fallback to default intervals
         return DEFAULT_DAY_INTERVAL if daytime else DEFAULT_NIGHT_INTERVAL
@@ -484,13 +824,13 @@ def _log_quota_warning_if_needed(interval: int, daytime: bool, config_manager: C
     night_syncs = (night_hours * 60) / night_interval
     total_calls = (day_syncs + night_syncs) * calls_per_sync
     
-    # Warn if exceeding low-tier quota (500 calls/day)
-    low_tier_quota = 500
+    # Warn if exceeding low-tier quota (100 calls/day)
+    low_tier_quota = 100
     if total_calls > low_tier_quota:
         _LOGGER.warning(
-            f"Tado CE: Custom polling intervals may exceed API quota. "
+            f"Tado CE: Custom polling intervals may exceed API quota for 100-call tier. "
             f"Estimated {total_calls:.0f} calls/day with day={day_interval}m, night={night_interval}m. "
-            f"Consider increasing intervals to stay under {low_tier_quota} calls/day."
+            f"Consider increasing intervals or check if you have a higher quota tier (5000/20000)."
         )
 
 
@@ -895,34 +1235,12 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
             "_confidence_score",       # replaced by _analysis_confidence
         ]
         
-        # Part 2: Find zones WITHOUT TRV (SU02 Smart Thermostat zones)
-        # These zones should NOT have thermal analytics sensors
-        TRV_DEVICE_TYPES = {'VA02', 'VA01', 'RU01', 'RU02'}
-        thermal_analytics_suffixes = [
-            "_thermal_inertia",
-            "_avg_heating_rate",
-            "_preheat_time",
-            "_analysis_confidence",
-            "_heating_acceleration",
-            "_approach_factor",
-        ]
-        
-        zones_without_trv = set()
-        zone_name_map = {}
-        try:
-            zones_info = await hass.async_add_executor_job(load_zones_info_file)
-            if zones_info:
-                for zone in zones_info:
-                    zone_id = str(zone.get('id'))
-                    zone_name = zone.get('name', '').lower().replace(' ', '_')
-                    zone_name_map[zone_id] = zone_name
-                    devices = zone.get('devices', [])
-                    has_trv = any(d.get('deviceType') in TRV_DEVICE_TYPES for d in devices)
-                    if not has_trv and zone.get('type') == 'HEATING':
-                        zones_without_trv.add(zone_name)
-                        _LOGGER.debug(f"  Zone without TRV: {zone_name}")
-        except Exception as e:
-            _LOGGER.warning(f"  Could not load zones_info for TRV check: {e}")
+        # Part 2: REMOVED in v2.0.1 (#91)
+        # Previously removed thermal analytics from non-TRV zones, but SU02 also has heatingPower
+        # Thermal analytics sensors are now created for ALL zones with heatingPower data
+        # Users who upgraded from v1.11.0-v2.0.0 may need to reload the integration
+        # to recreate thermal analytics sensors for SU02 zones
+        _LOGGER.info("  v2.0.1: Thermal analytics now available for all zones with heatingPower (including SU02)")
         
         removed_count = 0
         for entity_id, entity_entry in list(entity_registry.entities.items()):
@@ -938,16 +1256,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
                     _LOGGER.info(f"  Removing deprecated entity: {entity_id}")
                     break
             
-            # Check thermal analytics on non-TRV zones
-            if not should_remove and zones_without_trv:
-                for suffix in thermal_analytics_suffixes:
-                    if entity_id.endswith(suffix):
-                        # Extract zone name from entity_id (e.g., sensor.hallway_thermal_inertia -> hallway)
-                        entity_zone = entity_id.replace("sensor.", "").replace(suffix, "")
-                        if entity_zone in zones_without_trv:
-                            should_remove = True
-                            _LOGGER.info(f"  Removing thermal analytics from non-TRV zone: {entity_id}")
-                            break
+            # v2.0.1: Removed non-TRV zone cleanup - SU02 also has heatingPower (#91)
             
             if should_remove:
                 entity_registry.async_remove(entity_id)
@@ -1208,6 +1517,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             old_cancel()
     
     hass.data[DOMAIN]['config_manager'] = config_manager
+    
+    # v2.0.1: Set Test Mode flag on async client for save_ratelimit() to use
+    client = get_async_client(hass)
+    client._test_mode_enabled = config_manager.get_test_mode_enabled()
+    _LOGGER.debug(f"Tado CE: Test Mode enabled = {client._test_mode_enabled}")
     
     # v1.10.0: Store freshness tracking functions in hass.data for entity access
     async def mark_entity_fresh(entity_id: str) -> None:
@@ -1484,14 +1798,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             home_id = get_current_home_id()
             ratelimit_path = get_data_file("ratelimit", home_id)
             
+            _LOGGER.debug(f"Tado CE: async_load_ratelimit - home_id={home_id}, path={ratelimit_path}")
+            
             if await aiofiles.os.path.exists(ratelimit_path):
                 async with aiofiles.open(ratelimit_path, 'r') as f:
                     content = await f.read()
                     cached_ratelimit[0] = json.loads(content)
+                    _LOGGER.debug(f"Tado CE: async_load_ratelimit - loaded used={cached_ratelimit[0].get('used')}")
             else:
                 cached_ratelimit[0] = None
-        except Exception:
+                _LOGGER.debug(f"Tado CE: async_load_ratelimit - file not found")
+        except Exception as e:
             cached_ratelimit[0] = None
+            _LOGGER.debug(f"Tado CE: async_load_ratelimit - exception: {e}")
     
     async def async_schedule_next_sync():
         """Schedule next sync with dynamic interval (async-safe)."""
@@ -1785,8 +2104,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry when options change."""
+    """Reload config entry when options change.
+    
+    v2.0.1: When Test Mode is disabled, trigger an API call to refresh
+    rate limit data with real values instead of relying on backup.
+    """
     _LOGGER.info("Tado CE: Options changed, reloading integration...")
+    
+    # v2.0.1: Check if Test Mode was just disabled
+    # If so, trigger an API call to get fresh rate limit data
+    try:
+        # Get previous Test Mode state from ratelimit.json
+        from .const import get_data_file
+        from .data_loader import get_current_home_id
+        import aiofiles
+        import json
+        
+        home_id = get_current_home_id()
+        ratelimit_path = get_data_file("ratelimit", home_id)
+        
+        prev_test_mode = False
+        if await aiofiles.os.path.exists(ratelimit_path):
+            async with aiofiles.open(ratelimit_path, 'r') as f:
+                content = await f.read()
+                ratelimit_data = json.loads(content)
+                prev_test_mode = ratelimit_data.get("test_mode", False)
+        
+        # Get new Test Mode state from options
+        new_test_mode = entry.options.get("test_mode_enabled", False)
+        
+        _LOGGER.debug(f"Test Mode transition check: prev={prev_test_mode}, new={new_test_mode}")
+        
+        # If Test Mode was just disabled, trigger API refresh
+        if prev_test_mode and not new_test_mode:
+            _LOGGER.info("Tado CE: Test Mode disabled - triggering API refresh for real rate limit data")
+            
+            # Get async client and make a lightweight API call
+            client = get_async_client(hass)
+            
+            # Use get_me() as a lightweight API call to refresh rate limit
+            # This will trigger save_ratelimit() with real API values
+            try:
+                await client.get_me()
+                _LOGGER.info("Tado CE: API refresh completed - rate limit data updated with real values")
+            except Exception as e:
+                _LOGGER.warning(f"Tado CE: API refresh failed (will use backup): {e}")
+    except Exception as e:
+        _LOGGER.debug(f"Tado CE: Could not check Test Mode transition: {e}")
+    
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -1806,7 +2171,18 @@ async def _async_register_services(hass: HomeAssistant):
         - temperature (required)
         - time_period (required) - Time Period format (e.g., "01:30:00")
         - overlay (optional)
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
+        
         entity_ids = call.data.get("entity_id", [])
         if isinstance(entity_ids, str):
             entity_ids = [entity_ids]
@@ -1885,7 +2261,19 @@ async def _async_register_services(hass: HomeAssistant):
                             break
     
     async def handle_set_water_heater_timer(call: ServiceCall):
-        """Handle set_water_heater_timer service call."""
+        """Handle set_water_heater_timer service call.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
+        
         entity_ids = call.data.get("entity_id", [])
         if isinstance(entity_ids, str):
             entity_ids = [entity_ids]
@@ -1962,8 +2350,20 @@ async def _async_register_services(hass: HomeAssistant):
                         break
     
     async def handle_resume_schedule(call: ServiceCall):
-        """Handle resume_schedule service call."""
+        """Handle resume_schedule service call.
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
         
         entity_ids = call.data.get("entity_id", [])
         if isinstance(entity_ids, str):
@@ -1987,8 +2387,18 @@ async def _async_register_services(hass: HomeAssistant):
         """Handle set_temperature_offset service call.
         
         Sets temperature offset for ALL devices in a zone (supports multi-TRV rooms).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
         
         entity_id = call.data.get("entity_id")
         offset = call.data.get("offset")
@@ -2015,8 +2425,20 @@ async def _async_register_services(hass: HomeAssistant):
                     break
     
     async def handle_add_meter_reading(call: ServiceCall):
-        """Handle add_meter_reading service call (fully async)."""
+        """Handle add_meter_reading service call (fully async).
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
         
         reading = call.data.get("reading")
         date = call.data.get("date")
@@ -2071,8 +2493,20 @@ async def _async_register_services(hass: HomeAssistant):
     )
     
     async def handle_identify_device(call: ServiceCall):
-        """Handle identify_device service call (fully async)."""
+        """Handle identify_device service call (fully async).
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
         
         device_serial = call.data.get("device_serial")
         
@@ -2083,8 +2517,20 @@ async def _async_register_services(hass: HomeAssistant):
             _LOGGER.error(f"Failed to identify device: {device_serial}")
     
     async def handle_set_away_config(call: ServiceCall):
-        """Handle set_away_configuration service call (fully async)."""
+        """Handle set_away_configuration service call (fully async).
+        
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        should_block, reason = await async_check_bootstrap_reserve(hass)
+        if should_block:
+            await async_show_api_limit_notification(hass, reason)
+            raise HomeAssistantError(
+                "API quota critically low - action blocked to preserve bootstrap reserve. "
+                "Please wait for API reset."
+            )
         
         entity_id = call.data.get("entity_id")
         mode = call.data.get("mode")

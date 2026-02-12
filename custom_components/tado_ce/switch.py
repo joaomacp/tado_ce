@@ -75,35 +75,20 @@ class TadoAwayModeSwitch(SwitchEntity):
 
     # ========== v1.9.6: Helper Methods ==========
     
-    def _get_debounce_window(self) -> float:
-        """Get the optimistic update debounce window in seconds.
-        
-        v1.9.6: Extracted to helper method for consistency with climate entities.
-        
-        Returns:
-            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
-        """
-        try:
-            if hasattr(self, 'hass') and self.hass:
-                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-                if config_manager:
-                    return float(config_manager.get_refresh_debounce_seconds()) + 2.0
-        except Exception:
-            pass
-        return 17.0  # Default fallback (15s debounce + 2s buffer)
-    
     def _is_within_optimistic_window(self) -> bool:
         """Check if we're within the optimistic update window.
         
         v1.9.6: Extracted to helper method for consistency with climate entities.
+        v2.0.1: DRY refactor - uses shared get_optimistic_window().
         
         Returns:
-            True if _optimistic_set_at is set and elapsed time < debounce window.
+            True if _optimistic_set_at is set and elapsed time < optimistic window.
         """
         if self._optimistic_set_at is None:
             return False
+        from . import get_optimistic_window
         elapsed = time.time() - self._optimistic_set_at
-        return elapsed < self._get_debounce_window()
+        return elapsed < get_optimistic_window(self.hass) if self.hass else elapsed < 17.0
 
     # ========== End Helper Methods ==========
     
@@ -175,8 +160,12 @@ class TadoAwayModeSwitch(SwitchEntity):
         """Set Away mode (everyone away) - async.
         
         v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         # Store previous state for rollback
         old_is_on = self._attr_is_on
@@ -205,8 +194,12 @@ class TadoAwayModeSwitch(SwitchEntity):
         """Set Home mode (someone home) - async.
         
         v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
         from .async_api import get_async_client
+        
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
         
         # Store previous state for rollback
         old_is_on = self._attr_is_on
@@ -232,13 +225,26 @@ class TadoAwayModeSwitch(SwitchEntity):
             self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
-        """Trigger immediate refresh after state change."""
-        try:
-            from .immediate_refresh_handler import get_handler
-            handler = get_handler(self.hass)
-            await handler.trigger_refresh(self.entity_id, reason)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+        """Trigger immediate refresh after state change.
+        
+        v2.0.1: DRY refactor - delegates to shared async_trigger_immediate_refresh().
+        """
+        from . import async_trigger_immediate_refresh
+        await async_trigger_immediate_refresh(self.hass, self.entity_id, reason)
+    
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check if bootstrap reserve is depleted and block action if so.
+        
+        v2.0.1: Bootstrap Reserve - ensures 3 API calls are ALWAYS reserved
+        for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If bootstrap reserve is depleted
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, "Away Mode")
 
 
 class TadoEarlyStartSwitch(SwitchEntity):
@@ -263,35 +269,20 @@ class TadoEarlyStartSwitch(SwitchEntity):
 
     # ========== v1.9.6: Helper Methods ==========
     
-    def _get_debounce_window(self) -> float:
-        """Get the optimistic update debounce window in seconds.
-        
-        v1.9.6: Extracted to helper method for consistency with climate entities.
-        
-        Returns:
-            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
-        """
-        try:
-            if hasattr(self, 'hass') and self.hass:
-                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-                if config_manager:
-                    return float(config_manager.get_refresh_debounce_seconds()) + 2.0
-        except Exception:
-            pass
-        return 17.0  # Default fallback (15s debounce + 2s buffer)
-    
     def _is_within_optimistic_window(self) -> bool:
         """Check if we're within the optimistic update window.
         
         v1.9.6: Extracted to helper method for consistency with climate entities.
+        v2.0.1: DRY refactor - uses shared get_optimistic_window().
         
         Returns:
-            True if _optimistic_set_at is set and elapsed time < debounce window.
+            True if _optimistic_set_at is set and elapsed time < optimistic window.
         """
         if self._optimistic_set_at is None:
             return False
+        from . import get_optimistic_window
         elapsed = time.time() - self._optimistic_set_at
-        return elapsed < self._get_debounce_window()
+        return elapsed < get_optimistic_window(self.hass) if self.hass else elapsed < 17.0
 
     # ========== End Helper Methods ==========
     
@@ -330,7 +321,11 @@ class TadoEarlyStartSwitch(SwitchEntity):
         """Turn on early start - async.
         
         v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         # Store previous state for rollback
         old_is_on = self._attr_is_on
         
@@ -352,7 +347,11 @@ class TadoEarlyStartSwitch(SwitchEntity):
         """Turn off early start - async.
         
         v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         # Store previous state for rollback
         old_is_on = self._attr_is_on
         
@@ -371,13 +370,26 @@ class TadoEarlyStartSwitch(SwitchEntity):
             self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
-        """Trigger immediate refresh after state change."""
-        try:
-            from .immediate_refresh_handler import get_handler
-            handler = get_handler(self.hass)
-            await handler.trigger_refresh(self.entity_id, reason)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+        """Trigger immediate refresh after state change.
+        
+        v2.0.1: DRY refactor - delegates to shared async_trigger_immediate_refresh().
+        """
+        from . import async_trigger_immediate_refresh
+        await async_trigger_immediate_refresh(self.hass, self.entity_id, reason)
+    
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check if bootstrap reserve is depleted and block action if so.
+        
+        v2.0.1: Bootstrap Reserve - ensures 3 API calls are ALWAYS reserved
+        for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If bootstrap reserve is depleted
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, f"Early Start {self._zone_name}")
     
     async def _async_set_early_start(self, enabled: bool) -> bool:
         """Set early start state via async API."""
@@ -427,35 +439,20 @@ class TadoChildLockSwitch(SwitchEntity):
 
     # ========== v1.9.6: Helper Methods ==========
     
-    def _get_debounce_window(self) -> float:
-        """Get the optimistic update debounce window in seconds.
-        
-        v1.9.6: Extracted to helper method for consistency with climate entities.
-        
-        Returns:
-            Debounce window = config value + 2.0 buffer, or 17.0 as fallback.
-        """
-        try:
-            if hasattr(self, 'hass') and self.hass:
-                config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
-                if config_manager:
-                    return float(config_manager.get_refresh_debounce_seconds()) + 2.0
-        except Exception:
-            pass
-        return 17.0  # Default fallback (15s debounce + 2s buffer)
-    
     def _is_within_optimistic_window(self) -> bool:
         """Check if we're within the optimistic update window.
         
         v1.9.6: Extracted to helper method for consistency with climate entities.
+        v2.0.1: DRY refactor - uses shared get_optimistic_window().
         
         Returns:
-            True if _optimistic_set_at is set and elapsed time < debounce window.
+            True if _optimistic_set_at is set and elapsed time < optimistic window.
         """
         if self._optimistic_set_at is None:
             return False
+        from . import get_optimistic_window
         elapsed = time.time() - self._optimistic_set_at
-        return elapsed < self._get_debounce_window()
+        return elapsed < get_optimistic_window(self.hass) if self.hass else elapsed < 17.0
 
     # ========== End Helper Methods ==========
     
@@ -507,7 +504,11 @@ class TadoChildLockSwitch(SwitchEntity):
         """Turn on child lock - async.
         
         v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         # Store previous state for rollback
         old_is_on = self._attr_is_on
         
@@ -529,7 +530,11 @@ class TadoChildLockSwitch(SwitchEntity):
         """Turn off child lock - async.
         
         v1.9.6: Added optimistic tracking and proper rollback (parity with climate entities).
+        v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
         """
+        # v2.0.1: Bootstrap Reserve - block action when quota critically low
+        await self._check_bootstrap_reserve()
+        
         # Store previous state for rollback
         old_is_on = self._attr_is_on
         
@@ -548,13 +553,26 @@ class TadoChildLockSwitch(SwitchEntity):
             self.async_write_ha_state()
     
     async def _async_trigger_immediate_refresh(self, reason: str):
-        """Trigger immediate refresh after state change."""
-        try:
-            from .immediate_refresh_handler import get_handler
-            handler = get_handler(self.hass)
-            await handler.trigger_refresh(self.entity_id, reason)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to trigger immediate refresh: {e}")
+        """Trigger immediate refresh after state change.
+        
+        v2.0.1: DRY refactor - delegates to shared async_trigger_immediate_refresh().
+        """
+        from . import async_trigger_immediate_refresh
+        await async_trigger_immediate_refresh(self.hass, self.entity_id, reason)
+    
+    async def _check_bootstrap_reserve(self) -> None:
+        """Check if bootstrap reserve is depleted and block action if so.
+        
+        v2.0.1: Bootstrap Reserve - ensures 3 API calls are ALWAYS reserved
+        for auto-recovery after API reset.
+        
+        v2.0.1: DRY refactor - delegates to shared async_check_bootstrap_reserve_or_raise().
+        
+        Raises:
+            HomeAssistantError: If bootstrap reserve is depleted
+        """
+        from . import async_check_bootstrap_reserve_or_raise
+        await async_check_bootstrap_reserve_or_raise(self.hass, f"Child Lock {self._zone_name}")
     
     async def _async_set_child_lock(self, enabled: bool) -> bool:
         """Set child lock state via async API."""

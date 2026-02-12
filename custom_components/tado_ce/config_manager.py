@@ -24,6 +24,7 @@ DEFAULT_MOBILE_DEVICES_ENABLED = False
 DEFAULT_MOBILE_DEVICES_FREQUENT_SYNC = False
 DEFAULT_OFFSET_ENABLED = False
 DEFAULT_TEST_MODE_ENABLED = False
+DEFAULT_QUOTA_RESERVE_ENABLED = True  # v2.0.1: Quota Reserve Protection default ON
 DEFAULT_DAY_START_HOUR = 7
 DEFAULT_NIGHT_START_HOUR = 23
 DEFAULT_API_HISTORY_RETENTION_DAYS = 14  # 0 = keep forever
@@ -66,6 +67,23 @@ class ConfigurationManager:
         self._options = config_entry.options if config_entry.options else {}
         self._hass = hass
         # Don't sync on init to avoid blocking - will be synced when needed
+    
+    def _get_option(self, key: str, default):
+        """Get option value with real-time update support.
+        
+        Reads directly from config_entry.options to get real-time value
+        after user changes options (not cached self._options).
+        
+        Args:
+            key: Option key to retrieve
+            default: Default value if key not found
+            
+        Returns:
+            Option value or default
+        """
+        if self._config_entry and self._config_entry.options:
+            return self._config_entry.options.get(key, default)
+        return self._options.get(key, default)
     
     @staticmethod
     def validate_hour(hour: int, field_name: str) -> Tuple[bool, Optional[str]]:
@@ -216,7 +234,7 @@ class ConfigurationManager:
         Returns:
             True if weather sensors should be created, False otherwise
         """
-        return self._options.get('weather_enabled', DEFAULT_WEATHER_ENABLED)
+        return self._get_option('weather_enabled', DEFAULT_WEATHER_ENABLED)
     
     def get_mobile_devices_enabled(self) -> bool:
         """Check if mobile device tracking is enabled.
@@ -224,7 +242,7 @@ class ConfigurationManager:
         Returns:
             True if mobile device tracking should be active, False otherwise
         """
-        return self._options.get('mobile_devices_enabled', DEFAULT_MOBILE_DEVICES_ENABLED)
+        return self._get_option('mobile_devices_enabled', DEFAULT_MOBILE_DEVICES_ENABLED)
     
     def get_mobile_devices_frequent_sync(self) -> bool:
         """Check if mobile devices should be synced every quick sync.
@@ -232,7 +250,7 @@ class ConfigurationManager:
         Returns:
             True if mobile devices should sync frequently, False for full sync only
         """
-        return self._options.get('mobile_devices_frequent_sync', DEFAULT_MOBILE_DEVICES_FREQUENT_SYNC)
+        return self._get_option('mobile_devices_frequent_sync', DEFAULT_MOBILE_DEVICES_FREQUENT_SYNC)
     
     def get_offset_enabled(self) -> bool:
         """Check if temperature offset attribute is enabled on climate entities.
@@ -240,7 +258,7 @@ class ConfigurationManager:
         Returns:
             True if offset_celsius attribute should be added to climate entities
         """
-        return self._options.get('offset_enabled', DEFAULT_OFFSET_ENABLED)
+        return self._get_option('offset_enabled', DEFAULT_OFFSET_ENABLED)
     
     def get_home_state_sync_enabled(self) -> bool:
         """Check if home state sync is enabled (for away mode switch and climate presets).
@@ -248,15 +266,29 @@ class ConfigurationManager:
         Returns:
             True if home state should be synced, False to save API calls
         """
-        return self._options.get('home_state_sync_enabled', False)
+        return self._get_option('home_state_sync_enabled', False)
     
     def get_test_mode_enabled(self) -> bool:
         """Check if Test Mode is enabled (enforce 100 API limit).
         
+        Note: Uses _get_option() for real-time value after user toggles.
+        
         Returns:
             True if Test Mode is active, False otherwise
         """
-        return self._options.get('test_mode_enabled', DEFAULT_TEST_MODE_ENABLED)
+        return self._get_option('test_mode_enabled', DEFAULT_TEST_MODE_ENABLED)
+    
+    def get_quota_reserve_enabled(self) -> bool:
+        """Check if Quota Reserve Protection is enabled.
+        
+        v2.0.1: User-configurable toggle for quota reserve protection.
+        When enabled, pauses polling when quota is low and blocks manual
+        actions when quota is critically low (bootstrap reserve).
+        
+        Returns:
+            True if Quota Reserve Protection is active (default), False otherwise
+        """
+        return self._get_option('quota_reserve_enabled', DEFAULT_QUOTA_RESERVE_ENABLED)
     
     def get_day_start_hour(self) -> int:
         """Get configured day start hour (default 7am).
@@ -264,7 +296,7 @@ class ConfigurationManager:
         Returns:
             Hour (0-23) when day period starts
         """
-        hour = self._options.get('day_start_hour', DEFAULT_DAY_START_HOUR)
+        hour = self._get_option('day_start_hour', DEFAULT_DAY_START_HOUR)
         # Convert float to int (HA options may return float)
         if isinstance(hour, float):
             hour = int(hour)
@@ -280,7 +312,7 @@ class ConfigurationManager:
         Returns:
             Hour (0-23) when night period starts
         """
-        hour = self._options.get('night_start_hour', DEFAULT_NIGHT_START_HOUR)
+        hour = self._get_option('night_start_hour', DEFAULT_NIGHT_START_HOUR)
         # Convert float to int (HA options may return float)
         if isinstance(hour, float):
             hour = int(hour)
@@ -296,7 +328,7 @@ class ConfigurationManager:
         Returns:
             Polling interval in minutes (1-1440), or None if not configured
         """
-        interval = self._options.get('custom_day_interval')
+        interval = self._get_option('custom_day_interval', None)
         if interval is None:
             return None
         
@@ -312,7 +344,7 @@ class ConfigurationManager:
         Returns:
             Polling interval in minutes (1-1440), or None if not configured
         """
-        interval = self._options.get('custom_night_interval')
+        interval = self._get_option('custom_night_interval', None)
         if interval is None:
             return None
         
@@ -328,7 +360,7 @@ class ConfigurationManager:
         Returns:
             Number of days to retain history (0 = keep forever, default 14)
         """
-        days = self._options.get('api_history_retention_days', DEFAULT_API_HISTORY_RETENTION_DAYS)
+        days = self._get_option('api_history_retention_days', DEFAULT_API_HISTORY_RETENTION_DAYS)
         # Convert float to int (HA options may return float)
         if isinstance(days, float):
             days = int(days)
@@ -344,7 +376,7 @@ class ConfigurationManager:
         Returns:
             Timer duration in minutes (5-1440, default 60)
         """
-        duration = self._options.get('hot_water_timer_duration', DEFAULT_HOT_WATER_TIMER_DURATION)
+        duration = self._get_option('hot_water_timer_duration', DEFAULT_HOT_WATER_TIMER_DURATION)
         # Convert float to int (HA options may return float)
         if isinstance(duration, float):
             duration = int(duration)
@@ -363,7 +395,7 @@ class ConfigurationManager:
         Returns:
             Debounce delay in seconds (1-60, default 15)
         """
-        delay = self._options.get('refresh_debounce_seconds', DEFAULT_REFRESH_DEBOUNCE_SECONDS)
+        delay = self._get_option('refresh_debounce_seconds', DEFAULT_REFRESH_DEBOUNCE_SECONDS)
         
         # Handle both int (from NumberSelector), float, and string (legacy) input
         if isinstance(delay, float):
@@ -391,7 +423,7 @@ class ConfigurationManager:
         Returns:
             True if Schedule Calendar should be created, False otherwise
         """
-        return self._options.get('schedule_calendar_enabled', DEFAULT_SCHEDULE_CALENDAR_ENABLED)
+        return self._get_option('schedule_calendar_enabled', DEFAULT_SCHEDULE_CALENDAR_ENABLED)
     
     def get_smart_comfort_enabled(self) -> bool:
         """Check if Smart Comfort analytics is enabled.
@@ -402,7 +434,7 @@ class ConfigurationManager:
         Returns:
             True if Smart Comfort sensors should be created, False otherwise
         """
-        return self._options.get('smart_comfort_enabled', DEFAULT_SMART_COMFORT_ENABLED)
+        return self._get_option('smart_comfort_enabled', DEFAULT_SMART_COMFORT_ENABLED)
     
     def get_outdoor_temp_entity(self) -> str:
         """Get the outdoor temperature entity for weather compensation.
@@ -413,7 +445,7 @@ class ConfigurationManager:
         Returns:
             Entity ID string, or empty string if not configured
         """
-        return self._options.get('outdoor_temp_entity', DEFAULT_OUTDOOR_TEMP_ENTITY)
+        return self._get_option('outdoor_temp_entity', DEFAULT_OUTDOOR_TEMP_ENTITY)
     
     def get_smart_comfort_mode(self) -> str:
         """Get the Smart Comfort mode preset.
@@ -427,8 +459,8 @@ class ConfigurationManager:
             Preset name: 'none', 'light', 'moderate', or 'aggressive'
         """
         # Check new key first, fallback to legacy weather_compensation for backward compatibility
-        return self._options.get('smart_comfort_mode', 
-                                 self._options.get('weather_compensation', DEFAULT_WEATHER_COMPENSATION))
+        return self._get_option('smart_comfort_mode', 
+                                 self._get_option('weather_compensation', DEFAULT_WEATHER_COMPENSATION))
     
     def get_weather_compensation(self) -> str:
         """Get the weather compensation preset (legacy, use get_smart_comfort_mode instead).
@@ -449,7 +481,7 @@ class ConfigurationManager:
         Returns:
             True to use feels-like temperature, False for actual temperature
         """
-        return self._options.get('use_feels_like', DEFAULT_USE_FEELS_LIKE)
+        return self._get_option('use_feels_like', DEFAULT_USE_FEELS_LIKE)
     
     def get_smart_comfort_history_days(self) -> int:
         """Get Smart Comfort temperature history retention in days.
@@ -460,7 +492,7 @@ class ConfigurationManager:
         Returns:
             Number of days (1-30, default 7)
         """
-        days = self._options.get('smart_comfort_history_days', DEFAULT_SMART_COMFORT_HISTORY_DAYS)
+        days = self._get_option('smart_comfort_history_days', DEFAULT_SMART_COMFORT_HISTORY_DAYS)
         if isinstance(days, float):
             days = int(days)
         if isinstance(days, int) and MIN_SMART_COMFORT_HISTORY_DAYS <= days <= MAX_SMART_COMFORT_HISTORY_DAYS:
@@ -476,7 +508,7 @@ class ConfigurationManager:
         Returns:
             Window type: 'single_pane', 'double_pane', 'triple_pane', or 'passive_house'
         """
-        window_type = self._options.get('mold_risk_window_type', DEFAULT_MOLD_RISK_WINDOW_TYPE)
+        window_type = self._get_option('mold_risk_window_type', DEFAULT_MOLD_RISK_WINDOW_TYPE)
         
         # Validate against known window types
         from .const import WINDOW_U_VALUES
@@ -494,7 +526,7 @@ class ConfigurationManager:
         Returns:
             Buffer minutes (0-120, default 0 = disabled)
         """
-        minutes = self._options.get('ufh_buffer_minutes', 0)
+        minutes = self._get_option('ufh_buffer_minutes', 0)
         if isinstance(minutes, float):
             minutes = int(minutes)
         if isinstance(minutes, int) and 0 <= minutes <= 120:
@@ -509,7 +541,7 @@ class ConfigurationManager:
         Returns:
             List of zone ID strings, empty list if none configured
         """
-        zones = self._options.get('ufh_zones', [])
+        zones = self._get_option('ufh_zones', [])
         if isinstance(zones, list):
             return [str(z) for z in zones]
         return []
@@ -523,7 +555,7 @@ class ConfigurationManager:
         Returns:
             True if Adaptive Preheat is enabled, False otherwise
         """
-        return self._options.get('adaptive_preheat_enabled', False)
+        return self._get_option('adaptive_preheat_enabled', False)
     
     def get_adaptive_preheat_zones(self) -> list[str]:
         """Get list of zone IDs enabled for Adaptive Preheat.
@@ -534,7 +566,7 @@ class ConfigurationManager:
         Returns:
             List of zone ID strings, empty list = all zones
         """
-        zones = self._options.get('adaptive_preheat_zones', [])
+        zones = self._get_option('adaptive_preheat_zones', [])
         if isinstance(zones, list):
             return [str(z) for z in zones]
         return []
@@ -548,7 +580,7 @@ class ConfigurationManager:
         Returns:
             Minimum cycles (1-10, default 3)
         """
-        cycles = self._options.get('heating_cycle_min_cycles', 3)
+        cycles = self._get_option('heating_cycle_min_cycles', 3)
         if isinstance(cycles, float):
             cycles = int(cycles)
         if isinstance(cycles, int) and 1 <= cycles <= 10:
@@ -563,7 +595,7 @@ class ConfigurationManager:
         Returns:
             Number of days (7-90, default 30)
         """
-        days = self._options.get('heating_cycle_history_days', 30)
+        days = self._get_option('heating_cycle_history_days', 30)
         if isinstance(days, float):
             days = int(days)
         if isinstance(days, int) and 7 <= days <= 90:
@@ -579,7 +611,7 @@ class ConfigurationManager:
         Returns:
             Threshold in °C (0.05-0.5, default 0.1)
         """
-        threshold = self._options.get('heating_cycle_inertia_threshold', 0.1)
+        threshold = self._get_option('heating_cycle_inertia_threshold', 0.1)
         if isinstance(threshold, (int, float)) and 0.05 <= threshold <= 0.5:
             return float(threshold)
         return 0.1

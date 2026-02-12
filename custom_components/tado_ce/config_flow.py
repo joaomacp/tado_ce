@@ -423,7 +423,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
             # Flatten tado_ce_exclusive section
             if 'tado_ce_exclusive' in user_input:
                 exclusive = user_input['tado_ce_exclusive']
-                for key in ['schedule_calendar_enabled', 'ufh_buffer_minutes', 'ufh_zones', 'adaptive_preheat_enabled', 'adaptive_preheat_zones', 'hot_water_timer_duration', 'test_mode_enabled']:
+                for key in ['ufh_buffer_minutes', 'ufh_zones', 'adaptive_preheat_enabled', 'adaptive_preheat_zones', 'hot_water_timer_duration', 'schedule_calendar_enabled', 'test_mode_enabled']:
                     if key in exclusive:
                         processed_input[key] = exclusive[key]
             
@@ -437,7 +437,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
             # Flatten polling_api section
             if 'polling_api' in user_input:
                 polling = user_input['polling_api']
-                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 'refresh_debounce_seconds', 'api_history_retention_days']:
+                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 'refresh_debounce_seconds', 'api_history_retention_days', 'quota_reserve_enabled']:
                     if key in polling:
                         processed_input[key] = polling[key]
             
@@ -498,7 +498,14 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                 # === Tado CE Exclusive ===
                 vol.Required("tado_ce_exclusive"): data_entry_flow.section(
                     vol.Schema({
-                        vol.Optional('schedule_calendar_enabled', default=options.get('schedule_calendar_enabled', False)): BooleanSelector(),
+                        vol.Optional('adaptive_preheat_enabled', default=options.get('adaptive_preheat_enabled', False)): BooleanSelector(),
+                        vol.Optional('adaptive_preheat_zones', default=options.get('adaptive_preheat_zones', [])): SelectSelector(
+                            SelectSelectorConfig(
+                                options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
+                                multiple=True,
+                                mode=SelectSelectorMode.DROPDOWN
+                            )
+                        ),
                         vol.Optional('ufh_buffer_minutes', default=options.get('ufh_buffer_minutes', 0)): NumberSelector(
                             NumberSelectorConfig(min=0, max=60, step=5, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
                         ),
@@ -509,17 +516,10 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                                 mode=SelectSelectorMode.DROPDOWN
                             )
                         ),
-                        vol.Optional('adaptive_preheat_enabled', default=options.get('adaptive_preheat_enabled', False)): BooleanSelector(),
-                        vol.Optional('adaptive_preheat_zones', default=options.get('adaptive_preheat_zones', [])): SelectSelector(
-                            SelectSelectorConfig(
-                                options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
-                                multiple=True,
-                                mode=SelectSelectorMode.DROPDOWN
-                            )
-                        ),
                         vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
                             NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
                         ),
+                        vol.Optional('schedule_calendar_enabled', default=options.get('schedule_calendar_enabled', False)): BooleanSelector(),
                         vol.Optional('test_mode_enabled', default=options.get('test_mode_enabled', False)): BooleanSelector(),
                     }),
                     {"collapsed": True},
@@ -584,6 +584,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('api_history_retention_days', default=options.get('api_history_retention_days', 14)): NumberSelector(
                             NumberSelectorConfig(min=0, max=365, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
                         ),
+                        vol.Optional('quota_reserve_enabled', default=options.get('quota_reserve_enabled', True)): BooleanSelector(),
                     }),
                     {"collapsed": True},
                 ),

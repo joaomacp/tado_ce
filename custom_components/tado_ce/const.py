@@ -227,8 +227,14 @@ POLLING_SAFETY_BUFFER = 0.90    # Reserve 10% quota for manual calls and unexpec
 
 # v2.0.0: Quota Reserve Protection Constants
 # When remaining quota falls below threshold, pause polling to reserve for manual operations
-QUOTA_RESERVE_CALLS = 5         # Minimum reserved calls (absolute floor)
+QUOTA_RESERVE_CALLS = 5         # Minimum reserved calls (absolute floor) - pause polling
 QUOTA_RESERVE_PERCENT = 0.05    # Reserve 5% of daily limit (whichever is larger)
+QUOTA_RESERVE_ENABLED_DEFAULT = True  # v2.0.1: Default ON, advanced users can disable
+
+# v2.0.1: Bootstrap Reserve - absolute minimum calls that are NEVER used
+# These are reserved for auto-recovery after API reset (detecting reset, initial sync)
+# Even manual actions are blocked when remaining <= QUOTA_BOOTSTRAP_CALLS
+QUOTA_BOOTSTRAP_CALLS = 3       # Hard limit - never use these calls
 
 # v1.11.0: Mold Risk Enhancement - Window U-values (W/m²K)
 # Standard thermal transmittance values for different window types

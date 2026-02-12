@@ -52,6 +52,10 @@ def _get_file_path(base_name: str) -> Path:
     
     Tries per-home file first, falls back to legacy file.
     Also auto-detects per-home files if _current_home_id not set yet.
+    
+    v2.0.1: Fixed glob pattern to only match {base_name}_{digits}.json
+    to avoid collision with similar prefixes (e.g., zones_info.json
+    being matched when looking for zones_*.json). Issue #100.
     """
     # If home_id is set, use it directly
     if _current_home_id:
@@ -60,13 +64,17 @@ def _get_file_path(base_name: str) -> Path:
             return per_home_path
     
     # Auto-detect per-home files (for when home_id not set yet)
-    # Look for files matching pattern: {base_name}_*.json
-    import glob
-    pattern = str(DATA_DIR / f"{base_name}_*.json")
-    matches = glob.glob(pattern)
-    if matches:
-        # Return first match (should only be one per-home file)
-        return Path(matches[0])
+    # Use regex to only match {base_name}_{digits}.json pattern
+    # This avoids collision like zones_info.json matching zones_*.json
+    import re
+    try:
+        pattern = re.compile(rf"^{re.escape(base_name)}_(\d+)\.json$")
+        for file in DATA_DIR.iterdir():
+            if pattern.match(file.name):
+                _LOGGER.debug(f"Auto-detected per-home file: {file.name}")
+                return file
+    except (OSError, FileNotFoundError):
+        pass  # DATA_DIR doesn't exist yet
     
     # Fallback to legacy path
     return get_legacy_file(base_name)

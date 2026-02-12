@@ -55,9 +55,51 @@ Major release with adaptive polling, thermal analytics, enhanced mold risk, adap
 
 ---
 
+## v2.0.1 - Mold Risk Percentage Sensor, Hot Water Fix, Bootstrap Reserve & Test Mode Enhancement
+
+**Mold Risk Enhancements** ([#90](https://github.com/hiall-fyi/tado_ce/issues/90)):
+- [x] **Mold Risk Percentage Sensor** - `sensor.{zone}_mold_risk_percentage` exposes surface RH as dedicated sensor for history/graphs
+
+**Bug Fixes** ([#98](https://github.com/hiall-fyi/tado_ce/issues/98)):
+- [x] **Hot Water 3-Layer Defense** - Full parity with climate entities for optimistic updates
+
+**Quota Reserve Improvements** ([#99](https://github.com/hiall-fyi/tado_ce/issues/99) - @ChrisMarriott38):
+- [x] **Bootstrap Reserve** - Hard limit of 3 calls that are NEVER used (even for manual actions), reserved for auto-recovery after API reset
+- [x] **Persistent Notification** - Show HA notification when API limit exceeded, explaining to use Tado app for emergency changes
+
+**Test Mode Enhancement** ([#97](https://github.com/hiall-fyi/tado_ce/issues/97), [#98](https://github.com/hiall-fyi/tado_ce/issues/98), [#99](https://github.com/hiall-fyi/tado_ce/issues/99)):
+- [x] **Full 100-Call Simulation** - Test Mode now fully simulates a 100-call API tier for end-to-end testing of quota protection features
+- [x] **Single Source of Truth** - All simulated values stored in `ratelimit.json`, read by all components without recalculation
+- [x] **Simulated Quota Tracking** - Each API call increments simulated `used` counter (capped at 100)
+- [x] **Reset Detection** - Detects real API reset and resets simulated counter to 0
+- [x] **test_mode Attribute** - All API sensors now show `test_mode: true/false` attribute for visibility
+
+---
+
+## v2.0.2 - Presence Mode Select Entity
+
+**Presence Mode Enhancement** ([Discussion #102](https://github.com/hiall-fyi/tado_ce/discussions/102) - @wyx087):
+- [ ] **Presence Mode Select** - Replace `switch.tado_ce_away_mode` with `select.tado_ce_presence_mode`
+- [ ] **3 Options** - `auto` (resume geofencing), `home` (manual), `away` (manual)
+- [ ] **DELETE API** - Add `delete_presence_lock()` to resume geofencing (Auto mode)
+- [ ] **Breaking Change** - Existing automations using `switch.tado_ce_away_mode` will need updating
+
+---
+
 ## Future Consideration
 
 Features under consideration - need more community feedback or technical research.
+
+**Per-Zone Configuration** (Foundation for multiple features):
+- **Per-Zone Settings UI** - Allow different settings per zone instead of global-only
+- **Overlay Mode** - Different overlay modes per zone (e.g., bedroom uses NEXT_TIME_BLOCK, living room uses MANUAL)
+- **Mold Risk Window Type** - Different window types per zone for homes with mixed windows ([#90](https://github.com/hiall-fyi/tado_ce/issues/90))
+- **UFH Buffer** - Different buffer times per zone based on floor type
+- **API Call Priority** - Per-zone polling frequency (e.g., main zones more frequent)
+- **Note**: This is a significant UI/UX change that would benefit many features. Consider implementing as a unified "Zone Settings" page in Options flow.
+
+**Mold Risk Enhancements** ([#90](https://github.com/hiall-fyi/tado_ce/issues/90)):
+- ~~Per-Zone Window Type~~ - Moved to "Per-Zone Configuration" above
 
 **API Management:**
 - **Call Priority System** - Configurable weighting for different call types (e.g., zoneStates every 10 min, weather every 30 min). Requires significant coordinator architecture changes. Low priority - current adaptive polling handles most use cases.

@@ -132,7 +132,7 @@
               "adaptive_preheat_enabled": "Automatically start heating at recommended preheat time. Requires Smart Comfort to be enabled.",
               "adaptive_preheat_zones": "Select zones for adaptive preheat. Leave empty to apply to all heating zones.",
               "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
-              "test_mode_enabled": "Simulate post-grace period with 100 API call limit for testing"
+              "test_mode_enabled": "Simulate 100 API call limit for testing quota protection features. Reset time is preserved when disabled."
             }
           },
           "smart_comfort_settings": {
@@ -168,7 +168,8 @@
               "custom_day_interval": "Custom Day Interval (minutes)",
               "custom_night_interval": "Custom Night Interval (minutes)",
               "refresh_debounce_seconds": "Refresh Debounce (seconds)",
-              "api_history_retention_days": "API History Retention (days)"
+              "api_history_retention_days": "API History Retention (days)",
+              "quota_reserve_enabled": "Quota Reserve Protection"
             },
             "data_description": {
               "day_start_hour": "Hour when day period starts (0-23, default: 7)",
@@ -176,7 +177,8 @@
               "custom_day_interval": "Override smart polling for daytime (1-1440 minutes, leave empty for auto)",
               "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)",
               "refresh_debounce_seconds": "Delay before refreshing after state changes (1-60 seconds, default: 15)",
-              "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)"
+              "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)",
+              "quota_reserve_enabled": "Pause polling when quota is low and block actions when critically low. Disable only if you understand the risks."
             }
           }
         },
@@ -189,6 +191,7 @@
           "schedule_calendar_enabled": "Schedule Calendar",
           "smart_comfort_enabled": "Smart Comfort Analytics",
           "test_mode_enabled": "Test Mode (100 API call limit)",
+          "quota_reserve_enabled": "Quota Reserve Protection",
           "api_history_retention_days": "API History Retention (days)",
           "day_start_hour": "Day Start Hour",
           "night_start_hour": "Night Start Hour",
@@ -217,7 +220,8 @@
           "offset_enabled": "Add offset_celsius attribute to climate entities (+1 API call per device per full sync)",
           "schedule_calendar_enabled": "Display heating schedules as calendar entities (read-only)",
           "smart_comfort_enabled": "Enable preheat advisor, mold risk, comfort level sensors",
-          "test_mode_enabled": "Simulate post-grace period with 100 API call limit for testing",
+          "test_mode_enabled": "Simulate 100 API call limit for testing quota protection features. Reset time is preserved when disabled.",
+          "quota_reserve_enabled": "Pause polling when quota is low and block actions when critically low. Disable only if you understand the risks.",
           "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)",
           "day_start_hour": "Hour when day period starts (0-23, default: 7)",
           "night_start_hour": "Hour when night period starts (0-23, default: 23)",

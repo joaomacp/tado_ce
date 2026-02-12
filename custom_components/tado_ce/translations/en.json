@@ -152,7 +152,7 @@
               "adaptive_preheat_enabled": "Automatically start heating at recommended preheat time. Requires Smart Comfort to be enabled.",
               "adaptive_preheat_zones": "Select zones for adaptive preheat. Leave empty to apply to all heating zones.",
               "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
-              "test_mode_enabled": "Simulate post-grace period with 100 API call limit for testing"
+              "test_mode_enabled": "Simulate 100 API call limit for testing quota protection features"
             }
           },
           "smart_comfort_settings": {
@@ -188,7 +188,8 @@
               "custom_day_interval": "Custom Day Interval (minutes)",
               "custom_night_interval": "Custom Night Interval (minutes)",
               "refresh_debounce_seconds": "Refresh Debounce (seconds)",
-              "api_history_retention_days": "API History Retention (days)"
+              "api_history_retention_days": "API History Retention (days)",
+              "quota_reserve_enabled": "Quota Reserve Protection"
             },
             "data_description": {
               "day_start_hour": "Hour when day period starts (0-23, default: 7)",
@@ -196,9 +197,70 @@
               "custom_day_interval": "Override smart polling for daytime (1-1440 minutes, leave empty for auto)",
               "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)",
               "refresh_debounce_seconds": "Delay before refreshing after state changes (1-60 seconds, default: 15)",
-              "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)"
+              "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)",
+              "quota_reserve_enabled": "Pause polling when quota is low and block actions when critically low. Disable only if you understand the risks."
             }
           }
+        },
+        "data": {
+          "weather_enabled": "Weather Sensors",
+          "mobile_devices_enabled": "Mobile Device Tracking",
+          "mobile_devices_frequent_sync": "Sync Mobile Devices Frequently",
+          "home_state_sync_enabled": "Home/Away State Sync",
+          "offset_enabled": "Temperature Offset Attribute",
+          "schedule_calendar_enabled": "Schedule Calendar",
+          "smart_comfort_enabled": "Smart Comfort Analytics",
+          "test_mode_enabled": "Test Mode (100 API call limit)",
+          "quota_reserve_enabled": "Quota Reserve Protection",
+          "api_history_retention_days": "API History Retention (days)",
+          "day_start_hour": "Day Start Hour",
+          "night_start_hour": "Night Start Hour",
+          "custom_day_interval": "Custom Day Interval (minutes)",
+          "custom_night_interval": "Custom Night Interval (minutes)",
+          "hot_water_timer_duration": "Hot Water Timer Duration (minutes)",
+          "refresh_debounce_seconds": "Refresh Debounce (seconds)",
+          "outdoor_temp_entity": "Outdoor Temperature Entity",
+          "smart_comfort_mode": "Smart Comfort Mode",
+          "use_feels_like": "Use Feels-Like Temperature",
+          "smart_comfort_history_days": "Temperature History (days)",
+          "mold_risk_window_type": "Mold Risk Window Type",
+          "heating_cycle_history_days": "Thermal Analytics History (days)",
+          "heating_cycle_min_cycles": "Minimum Cycles for Analysis",
+          "heating_cycle_inertia_threshold": "Inertia Detection Threshold",
+          "ufh_buffer_minutes": "UFH Buffer (minutes)",
+          "ufh_zones": "UFH Zones",
+          "adaptive_preheat_enabled": "Adaptive Preheat",
+          "adaptive_preheat_zones": "Adaptive Preheat Zones"
+        },
+        "data_description": {
+          "weather_enabled": "Get outside temperature and solar intensity from Tado (+1 API call per sync)",
+          "mobile_devices_enabled": "Track mobile devices for geofencing (+1 API call per full sync)",
+          "mobile_devices_frequent_sync": "Sync mobile devices on every sync instead of only during full sync",
+          "home_state_sync_enabled": "Sync Tado home/away state for Away Mode switch and climate presets (+1 API call per sync)",
+          "offset_enabled": "Add offset_celsius attribute to climate entities (+1 API call per device per full sync)",
+          "schedule_calendar_enabled": "Display heating schedules as calendar entities (read-only)",
+          "smart_comfort_enabled": "Enable preheat advisor, mold risk, comfort level sensors",
+          "test_mode_enabled": "Simulate 100 API call limit for testing quota protection features",
+          "quota_reserve_enabled": "Pause polling when quota is low and block actions when critically low. Disable only if you understand the risks.",
+          "api_history_retention_days": "Days to keep API call history (0 = forever, default: 14)",
+          "day_start_hour": "Hour when day period starts (0-23, default: 7)",
+          "night_start_hour": "Hour when night period starts (0-23, default: 23)",
+          "custom_day_interval": "Override smart polling for daytime (1-1440 minutes, leave empty for auto)",
+          "custom_night_interval": "Override smart polling for nighttime (1-1440 minutes, leave empty for auto)",
+          "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 minutes, default: 60)",
+          "refresh_debounce_seconds": "Delay before refreshing after state changes (1-60 seconds, default: 15)",
+          "outdoor_temp_entity": "Select a temperature sensor for weather compensation (e.g., weather.home)",
+          "smart_comfort_mode": "Adjusts target temperature based on outdoor temp and humidity",
+          "use_feels_like": "Use feels-like (apparent) temperature instead of actual temperature",
+          "smart_comfort_history_days": "Days of temperature history for rate calculation (1-30, default: 7)",
+          "mold_risk_window_type": "Window type for mold risk surface temperature calculation",
+          "heating_cycle_history_days": "Days of heating cycle history to keep (1-30, default: 7)",
+          "heating_cycle_min_cycles": "Minimum completed cycles required before showing analytics (1-10, default: 3)",
+          "heating_cycle_inertia_threshold": "Temperature change threshold to detect inertia end (0.05-0.5°C, default: 0.1)",
+          "ufh_buffer_minutes": "Extra buffer time for underfloor heating systems (0-60 min). Adds to preheat time for UFH thermal lag.",
+          "ufh_zones": "Select zones with underfloor heating. Leave empty to apply buffer to all zones.",
+          "adaptive_preheat_enabled": "Automatically start heating at recommended preheat time. Requires Smart Comfort to be enabled.",
+          "adaptive_preheat_zones": "Select zones for adaptive preheat. Leave empty to apply to all heating zones."
         }
       }
     },

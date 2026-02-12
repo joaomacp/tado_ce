@@ -27,7 +27,7 @@ REFRESH_ENTITY_TYPES = {
 # Rate limiting thresholds
 QUOTA_WARNING_THRESHOLD = 0.8  # 80% quota used
 QUOTA_CRITICAL_THRESHOLD = 0.9  # 90% quota used
-MIN_QUOTA_FOR_REFRESH = 50  # Minimum remaining calls to allow refresh
+MIN_QUOTA_PERCENTAGE_FOR_REFRESH = 0.10  # Minimum 10% remaining to allow refresh
 
 
 class ImmediateRefreshHandler:
@@ -60,10 +60,9 @@ class ImmediateRefreshHandler:
         """
         try:
             from .const import DOMAIN
-            entries = self.hass.config_entries.async_entries(DOMAIN)
-            if entries:
-                from .config_manager import ConfigurationManager
-                config_manager = ConfigurationManager(entries[0])
+            # Get config_manager from hass.data (real-time config access)
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            if config_manager:
                 return float(config_manager.get_refresh_debounce_seconds())
         except Exception as e:
             _LOGGER.debug(f"Could not get debounce config, using default: {e}")
@@ -102,13 +101,14 @@ class ImmediateRefreshHandler:
         if status == "rate_limited" or remaining == 0:
             return False, "rate_limited"
         
-        # Check minimum quota threshold
-        if remaining is not None and remaining < MIN_QUOTA_FOR_REFRESH:
-            return False, f"quota_too_low (remaining: {remaining})"
-        
-        # Check percentage thresholds
+        # Check percentage thresholds (dynamic based on actual limit)
         if limit and remaining is not None:
-            percentage_used = (limit - remaining) / limit
+            percentage_remaining = remaining / limit
+            percentage_used = 1 - percentage_remaining
+            
+            # Skip refresh if less than 10% quota remaining
+            if percentage_remaining < MIN_QUOTA_PERCENTAGE_FOR_REFRESH:
+                return False, f"quota_too_low ({int(percentage_remaining * 100)}% remaining)"
             
             if percentage_used >= QUOTA_CRITICAL_THRESHOLD:
                 return False, f"quota_critical ({int(percentage_used * 100)}% used)"
@@ -202,7 +202,7 @@ class ImmediateRefreshHandler:
         # Check API quota before scheduling refresh
         can_refresh, quota_reason = await self._check_quota_available()
         if not can_refresh:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 f"Skipping immediate refresh for {entity_id}: {quota_reason}. "
                 f"Will rely on normal polling."
             )

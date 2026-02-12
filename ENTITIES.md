@@ -57,6 +57,9 @@ New sensors automatically created for all HEATING and AIR_CONDITIONING zones:
 - **Mold Risk Sensor** (`sensor.{zone}_mold_risk`): Per-zone mold risk indicator based on temperature, humidity, and dew point calculation
   - **Attributes**: `temperature`, `humidity`, `dew_point`, `temperature_source` (room/surface), `outdoor_temperature`, `surface_temperature`
   - **v2.0.0**: Enhanced with 2-tier temperature calculation - uses outdoor temp + window U-value to estimate cold spot temperature at window edges (Tier 1), or falls back to room temperature (Tier 2)
+- **Mold Risk Percentage Sensor** (`sensor.{zone}_mold_risk_percentage`): Surface relative humidity as percentage (0-100%) for historical tracking and graphing (v2.0.1)
+  - **Attributes**: `room_temperature`, `effective_temperature`, `humidity`, `dew_point`, `temperature_source`, `zone_type`
+  - Uses same calculation as Mold Risk Sensor - mold typically grows when surface RH exceeds ~70-80%
 - **Comfort Level Sensor** (`sensor.{zone}_comfort_level`): Adaptive comfort level (Freezing/Cold/Cool/Comfortable/Warm/Hot/Sweltering + Dry/Humid suffix)
 
 ### Smart Comfort Analytics (Opt-in)

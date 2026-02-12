@@ -54,13 +54,20 @@ Tado enforces API rate limits (100-20,000 calls/day depending on your plan). The
 3. Set "API History Retention" (0-365 days, default: 14)
 4. Set to 0 for unlimited retention
 
-**Test Mode:**
+**Test Mode (v2.0.2+):**
 1. Go to Settings → Devices & Services → Tado CE
 2. Click "Configure"
 3. Enable "Enable Test Mode"
-4. Integration will simulate 100 call/day limit for testing
+4. Integration will fully simulate a 100 call/day API tier
 
-**Note:** Test mode is useful for testing low-quota scenarios without actually having a 100 call limit.
+**How Test Mode Works:**
+- **Simulated Quota Tracking** - Each API call increments a simulated `used` counter (capped at 100)
+- **Single Source of Truth** - All simulated values stored in `ratelimit.json`, read by all components
+- **Full Protection Testing** - Quota Reserve (≤5 remaining), Bootstrap Reserve (≤3 remaining), and Adaptive Polling all use simulated values
+- **Reset Detection** - When real API reset is detected, simulated counter resets to 0
+- **Visibility** - All API sensors show `test_mode: true` attribute when enabled
+
+**Note:** Test Mode is essential for testing quota protection features without actually having a 100 call limit. It simulates the exact behavior you'd experience with a real 100-call API tier.
 
 ### Usage Scenarios
 
@@ -128,19 +135,23 @@ entities:
 
 **Setup:**
 1. Enable Test Mode in configuration
-2. Monitor API usage sensors
+2. Monitor API usage sensors - they will show `test_mode: true` attribute
 3. Adjust polling intervals and optional features
-4. Verify you stay under 100 calls/day
+4. Verify quota protection mechanisms work correctly
 
 **Expected Behavior:**
-- API limit sensor shows 100
-- Adaptive polling adjusts to longer intervals
-- Optional features can be disabled to save calls
+- API limit sensor shows 100 (simulated)
+- API usage sensor increments by 1 per API call
+- Adaptive polling adjusts to longer intervals as simulated quota decreases
+- Quota Reserve pauses polling when simulated remaining ≤5
+- Bootstrap Reserve blocks ALL actions when simulated remaining ≤3
+- When real API reset is detected, simulated counter resets to 0
 
 **Benefits:**
-- Test configuration without actually having low quota
-- Optimize setup before downgrading plan
+- Test full quota protection without actually having low quota
+- Verify Bootstrap Reserve and Quota Reserve work correctly
 - Understand impact of different features on API usage
+- Confidence that integration will work correctly when Tado hard-stops at 100 calls
 
 ---
 
@@ -194,11 +205,23 @@ Smart Polling includes multiple strategies to optimize API usage:
 - Slower polling when quota is low
 - Keeps 10% safety buffer
 
+**Day/Night Aware Adaptive Polling (v2.0.1):**
+- Night period: Fixed 120 min interval (MAX_POLLING_INTERVAL) to conserve quota
+- Day period: Adaptive based on remaining quota after reserving Night calls
+- Reset Time consideration: If Reset is before Night Start, use all quota until Reset (no need to reserve Night quota)
+- Uniform Mode: If Day Start == Night Start, always uses Day (adaptive) polling - useful for 24/7 adaptive polling
+
 **Quota Reserve Protection (v2.0.0):**
 - Pauses polling when quota critically low (≤5% or ≤5 calls remaining)
 - Reserves quota for manual operations (set temperature, change mode, etc.)
 - Automatically resumes polling when API reset time passes
 - Prevents "locked out" scenario where polling stops and never resumes
+
+**Bootstrap Reserve Protection (v2.0.1):**
+- Hard limit of 3 API calls that are NEVER used, even for manual actions
+- Reserved for auto-recovery after API reset
+- When triggered: Shows persistent notification "API limit reached. Use the Tado app for emergency changes."
+- Notification auto-dismisses when API reset detected
 
 **Day/Night Polling:**
 - More frequent updates during day (default 7am-11pm)
@@ -298,7 +321,7 @@ Smart Polling includes multiple strategies to optimize API usage:
 
 ## 🔥 Thermal Analytics
 
-**Available:** v2.0.0+ | **Requirement:** TRV devices (VA01, VA02, RU01, RU02) | **Always Enabled**
+**Available:** v2.0.0+ | **Requirement:** Zones with heatingPower data (TRV or Smart Thermostat) | **Always Enabled**
 
 Thermal Analytics provides real-time analysis of your heating system's thermal performance based on complete heating cycles.
 
@@ -420,12 +443,11 @@ Thermal Analytics automatically measures how your rooms respond to heating by an
 
 ### Configuration
 
-**No configuration needed** - Thermal Analytics is automatically enabled for zones with TRV devices.
+**No configuration needed** - Thermal Analytics is automatically enabled for all HEATING zones that report heatingPower data.
 
-**Why TRV-only?**
-- TRV devices report heating power (0-100%)
-- Smart Thermostats (SU02) don't report heating power
-- Heating power is essential for accurate thermal analysis
+**Supported Devices (v2.0.1+):**
+- TRV devices (VA01, VA02, RU01, RU02)
+- Smart Thermostats (SU02) - Added in v2.0.1
 
 ### Usage Scenarios
 
@@ -1237,7 +1259,7 @@ Interval = (360 min / 10) / 0.90 = 36 / 0.90 = 40 minutes
 
 ## 🔄 Heating Cycle Detection
 
-**Available:** v2.0.0+ | **Requirement:** TRV devices | **Always Enabled**
+**Available:** v2.0.0+ | **Requirement:** Zones with heatingPower data | **Always Enabled**
 
 Heating Cycle Detection identifies complete heating cycles (heating ON → target reached → heating OFF) for accurate thermal analysis.
 
@@ -2150,18 +2172,20 @@ automation:
 ### Issue: Thermal Analytics Shows "Unknown"
 
 **Possible Causes:**
-1. Zone doesn't have TRV device (only SU02 Smart Thermostat)
+1. Zone doesn't report heatingPower data (rare - most HEATING zones do)
 2. Not enough heating cycles collected (need 3-5 cycles)
 3. HeatingCycleCoordinator not initialized
 4. Heating always on (no complete cycles)
 
 **Solution:**
-1. Check if zone has TRV: Look for VA01, VA02, RU01, RU02 in device list
+1. Check if zone has heatingPower: Look at `sensor.{zone}_heating` entity
 2. Wait 2-3 days for data collection
 3. Check HA logs for coordinator warnings
 4. Verify `cycle_count` attribute > 0
 5. Ensure heating turns on/off regularly (not always on or always off)
 6. Check `data_points` or `cycle_count` attribute to see how much data is available
+
+**Note (v2.0.1):** Thermal Analytics is now available for ALL zones with heatingPower data, including SU02 Smart Thermostat zones.
 
 ---
 
