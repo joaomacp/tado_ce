@@ -1639,6 +1639,46 @@ Optional Features include:
 - `binary_sensor.tado_ce_home` - Read-only home/away status
 - Climate entities show "home"/"away" preset
 
+### Overlay Mode (v2.0.2)
+
+**What it does:** Controls how long manual temperature changes last when you adjust temperature via Home Assistant.
+
+**Entity:** `select.tado_ce_overlay_mode`
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `Tado Mode` | Follows per-device "Manual Control" settings in Tado app (default) |
+| `Next Time Block` | Override lasts until next scheduled change |
+| `Manual` | Infinite override until you manually change back |
+
+**How It Works:**
+
+When you change temperature via Home Assistant (`climate.set_temperature`), the overlay mode determines how long that change lasts:
+
+- **Tado Mode**: Respects the "Manual Control" setting you configured for each device in the Tado app. This is the most flexible option as you can configure different behaviors per device.
+- **Next Time Block**: Override automatically ends when the next schedule block starts. Good for temporary adjustments.
+- **Manual**: Override stays until you manually switch back to Auto mode. Use this if you want full control.
+
+**Configuring Per-Device Behavior (Tado Mode):**
+
+If using "Tado Mode", configure per-device behavior in the Tado app:
+1. Open Tado app → Settings → Rooms & Devices
+2. Select a device
+3. Manual Control → Choose:
+   - "Until next automatic change" (same as Next Time Block)
+   - "Until you cancel" (same as Manual)
+   - "For a set time" (timer-based)
+
+**API Usage:** 0 calls (local storage only)
+
+**Note:** Default changed from infinite override to Tado Mode in v2.0.2. Users relying on infinite override should either:
+- Set Overlay Mode to "Manual", or
+- Configure "Until you cancel" in Tado app for each device
+
+---
+
 ### Understanding Geofencing vs Presence Mode
 
 **Important:** Geofencing is a Tado account-level setting configured in the Tado app, not in this integration.
