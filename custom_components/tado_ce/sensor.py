@@ -969,7 +969,13 @@ class TadoPollingIntervalSensor(SensorEntity):
             current_hour = datetime.now().hour
             day_start = config_manager.get_day_start_hour()
             night_start = config_manager.get_night_start_hour()
-            self._is_night_mode = not (day_start <= current_hour < night_start)
+            
+            # v2.0.3 FIX: Handle Uniform Mode (day_start == night_start) - Issue #99
+            is_uniform_mode = day_start == night_start
+            if is_uniform_mode:
+                self._is_night_mode = False  # Uniform Mode is always "Day"
+            else:
+                self._is_night_mode = not (day_start <= current_hour < night_start)
             
             # v2.0.1: Determine source more accurately
             # Check if adaptive is overriding the baseline interval
@@ -999,7 +1005,9 @@ class TadoPollingIntervalSensor(SensorEntity):
             else:
                 # No custom intervals - using pure adaptive (Day/Night aware)
                 if adaptive_interval is not None:
-                    if self._is_night_mode:
+                    if is_uniform_mode:
+                        self._source = "Adaptive (Uniform Mode)"
+                    elif self._is_night_mode:
                         self._source = "Adaptive (Night - fixed 120 min)"
                     else:
                         self._source = "Adaptive (Day)"

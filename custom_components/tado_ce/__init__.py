@@ -159,12 +159,55 @@ def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: Configura
     # Check if currently in Day or Night period
     is_day = is_daytime(config_manager)
     
+    # Calculate usable quota after safety buffer and reserve
+    usable_quota = effective_remaining * POLLING_SAFETY_BUFFER - QUOTA_RESERVE_CALLS
+    
+    # v2.0.3 FIX: Handle Uniform Mode (day_start == night_start) - Issue #99
+    # In Uniform Mode, there's no Day/Night distinction, so use full reset_hours
+    # and don't reserve any quota for Night period
+    if day_start == night_start:
+        # Uniform Mode - no Day/Night distinction
+        effective_hours = reset_hours
+        night_calls_needed = 0
+        time_boundary = f"Reset ({reset_hours:.1f}h)"
+        
+        day_quota = max(0, usable_quota - night_calls_needed)
+        
+        if day_quota <= 0 or effective_hours <= 0:
+            _LOGGER.debug(
+                f"Tado CE: No quota available (day_quota={day_quota:.1f}, "
+                f"effective_hours={effective_hours:.1f}). Using max interval."
+            )
+            return MAX_POLLING_INTERVAL
+        
+        # Calculate interval for Uniform Mode
+        effective_minutes = effective_hours * 60
+        interval_minutes = effective_minutes / day_quota
+        
+        # Apply constraints (min 5, max 120)
+        interval_minutes = int(max(MIN_POLLING_INTERVAL, min(MAX_POLLING_INTERVAL, interval_minutes)))
+        
+        _LOGGER.debug(
+            f"Tado CE Adaptive Polling (Uniform Mode):\n"
+            f"  Period: Uniform (Day Start = Night Start = {day_start})\n"
+            f"  Effective hours: {effective_hours:.1f}h (until {time_boundary})\n"
+            f"  Remaining: {remaining} calls (effective: {effective_remaining:.0f})\n"
+            f"  Usable quota: {usable_quota:.0f}\n"
+            f"  Calculated: {effective_minutes / day_quota:.1f} min → Applied: {interval_minutes} min\n"
+            f"  Reset in: {reset_hours:.1f}h | Test Mode: {test_mode}"
+        )
+        
+        return interval_minutes
+    
+    # Normal Day/Night Mode calculation
     # Calculate hours until Night Start (for Day period)
     if is_day:
         if current_hour < night_start:
             hours_until_night = night_start - current_hour
         else:
-            hours_until_night = 0
+            # current_hour >= night_start means we're past night_start today
+            # This shouldn't happen if is_day is True, but handle edge case
+            hours_until_night = 24 - current_hour + night_start
     else:
         hours_until_night = 0
     
@@ -176,9 +219,6 @@ def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: Configura
     
     # v2.0.1: Key insight - if Reset Time is before Night Start, we don't need to reserve Night quota!
     # Because quota will reset and we'll have fresh quota for Night.
-    
-    # Calculate usable quota after safety buffer and reserve
-    usable_quota = effective_remaining * POLLING_SAFETY_BUFFER - QUOTA_RESERVE_CALLS
     
     # v2.0.1: Night period uses fixed MAX_INTERVAL
     if not is_day:

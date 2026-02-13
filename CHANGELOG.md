@@ -28,6 +28,12 @@ All notable changes to Tado CE will be documented in this file.
   - Uses 0 API calls (local storage only)
   - **Note**: Default changed from infinite override to Tado Mode
 
+### Bug Fixes
+
+- **Fixed polling stuck at 120 min in Uniform Mode** ([#99](https://github.com/hiall-fyi/tado_ce/issues/99) - @ChrisMarriott38)
+  - When Day Start Hour = Night Start Hour (Uniform Mode), adaptive polling incorrectly calculated `hours_until_night = 0`, causing 120 min fallback
+  - Now correctly uses `reset_hours` as the effective time window in Uniform Mode
+
 ### Improvements
 - **DELETE API** - New `delete_presence_lock()` method for resuming geofencing
 

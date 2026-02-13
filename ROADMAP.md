@@ -119,6 +119,12 @@ Features under consideration - need more community feedback or technical researc
 - **Indoor Air Quality (IAQ)** - Air quality score per zone (requires additional sensors)
 - **Air Comfort** - Similar to Tado app's comfort visualization
 
+**Hub Controls Migration:**
+- **Quota Reserve Toggle** - Move `quota_reserve_enabled` from Config Options to Hub Controls for runtime toggle without reload
+- **Test Mode Toggle** - Move `test_mode_enabled` from Config Options to Hub Controls for easier debugging
+- **Benefit**: Allows automation control (e.g., "disable quota reserve when API remaining > 50") and faster toggling without entering Config Options
+- **Note**: Waiting for community feedback on use cases before implementation
+
 **Other:**
 - Apply for HACS default repository inclusion
 - Max Flow Temperature control (requires OpenTherm, [#15](https://github.com/hiall-fyi/tado_ce/issues/15))
