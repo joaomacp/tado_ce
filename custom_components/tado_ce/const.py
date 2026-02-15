@@ -255,3 +255,114 @@ INTERIOR_SURFACE_HEAT_TRANSFER_COEFFICIENT = 8.0  # W/m²K (standard value for i
 UFH_BUFFER_MINUTES_DEFAULT = 0  # Default: no buffer (standard radiators)
 UFH_BUFFER_MINUTES_MIN = 0
 UFH_BUFFER_MINUTES_MAX = 60     # Max 60 minutes additional buffer
+
+
+# =============================================================================
+# Per-Zone Configuration Constants (v2.1.0)
+# =============================================================================
+
+# Zone Features Toggles - control which entity groups are visible
+# New installs: all OFF (minimal entities)
+# Upgrades: all ON (preserve existing entities)
+ZONE_FEATURES_TOGGLES = {
+    "zone_diagnostics_enabled": False,      # Battery, connection, heating power sensors
+    "device_controls_enabled": False,       # Child lock, early start switches
+    "boost_buttons_enabled": False,         # Boost buttons
+    "environment_sensors_enabled": False,   # Mold risk, comfort level, condensation risk
+    "thermal_analytics_enabled": False,     # Thermal analytics sensors
+    "zone_configuration_enabled": False,    # Per-zone config entities
+}
+
+# Overlay mode values (UPPERCASE - matches Tado API)
+# v2.1.0: Unified to UPPERCASE for consistency across Hub and per-zone
+OVERLAY_MODE_TADO_MODE = "TADO_MODE"
+OVERLAY_MODE_NEXT_TIME_BLOCK = "NEXT_TIME_BLOCK"
+OVERLAY_MODE_TIMER = "TIMER"
+OVERLAY_MODE_MANUAL = "MANUAL"
+
+# Overlay mode default
+OVERLAY_MODE_DEFAULT = OVERLAY_MODE_TADO_MODE
+OVERLAY_MODE_DEFAULT_DISPLAY = "Tado Mode"
+
+# Overlay mode display names
+OVERLAY_MODE_OPTIONS = ["Tado Mode", "Next Time Block", "Timer", "Manual"]
+OVERLAY_MODE_MAP = {
+    "Tado Mode": OVERLAY_MODE_TADO_MODE,
+    "Next Time Block": OVERLAY_MODE_NEXT_TIME_BLOCK,
+    "Timer": OVERLAY_MODE_TIMER,
+    "Manual": OVERLAY_MODE_MANUAL,
+}
+OVERLAY_MODE_REVERSE_MAP = {v: k for k, v in OVERLAY_MODE_MAP.items()}
+
+# Timer duration default
+TIMER_DURATION_DEFAULT = 60
+
+# Default per-zone configuration values
+DEFAULT_ZONE_CONFIG = {
+    "heating_type": "radiator",     # radiator or ufh (Heating only)
+    "ufh_buffer_minutes": 30,       # 0-60 minutes (Heating only, when UFH)
+    "adaptive_preheat": False,      # Heating + AC
+    "smart_comfort_mode": "none",   # none/light/moderate/aggressive (Heating + AC)
+    "window_type": "double_pane",   # single_pane/double_pane/triple_pane/passive_house (Heating + AC)
+    "overlay_mode": OVERLAY_MODE_DEFAULT,  # v2.1.0: default to inherit global
+    "timer_duration": TIMER_DURATION_DEFAULT,  # 15-180 minutes (Heating + AC, when Timer)
+    "min_temp": 5.0,                # 5-25°C (Heating + AC)
+    "max_temp": 25.0,               # 15-30°C (Heating + AC)
+    "temp_offset": 0.0,             # -3.0 to +3.0°C (Heating + AC)
+}
+
+# Window type to U-value mapping (for migration from v2.0.x)
+WINDOW_TYPE_U_VALUES = {
+    "single_pane": 5.0,
+    "double_pane": 2.7,
+    "triple_pane": 1.0,
+    "passive_house": 0.8,
+}
+
+# Heating type values
+HEATING_TYPE_RADIATOR = "radiator"
+HEATING_TYPE_UFH = "ufh"
+HEATING_TYPE_OPTIONS = ["Radiator", "UFH"]
+
+# Smart comfort mode options (for per-zone select)
+SMART_COMFORT_MODE_OPTIONS = ["None", "Light", "Moderate", "Aggressive"]
+
+# Condensation risk thresholds (dew point in °C)
+CONDENSATION_RISK_NONE_THRESHOLD = 13.0      # Below this = None
+CONDENSATION_RISK_LOW_THRESHOLD = 15.5       # Below this = Low
+CONDENSATION_RISK_MODERATE_THRESHOLD = 18.0  # Below this = Moderate, above = High
+
+# Per-zone temperature limits
+ZONE_MIN_TEMP_MIN = 5.0
+ZONE_MIN_TEMP_MAX = 25.0
+ZONE_MAX_TEMP_MIN = 15.0
+ZONE_MAX_TEMP_MAX = 30.0
+ZONE_TEMP_STEP = 0.5
+
+# Timer duration limits
+TIMER_DURATION_MIN = 15
+TIMER_DURATION_MAX = 180
+TIMER_DURATION_STEP = 15
+
+# Timer duration options (for per-zone select)
+TIMER_DURATION_OPTIONS = ["15", "30", "45", "60", "90", "120", "180"]
+
+# UFH buffer limits (same as existing, but for per-zone)
+ZONE_UFH_BUFFER_MIN = 0
+ZONE_UFH_BUFFER_MAX = 60
+ZONE_UFH_BUFFER_STEP = 5
+
+# Window type options (for per-zone select)
+WINDOW_TYPE_OPTIONS = ["Single Pane", "Double Pane", "Triple Pane", "Passive House"]
+WINDOW_TYPE_MAP = {
+    "Single Pane": "single_pane",
+    "Double Pane": "double_pane",
+    "Triple Pane": "triple_pane",
+    "Passive House": "passive_house",
+}
+WINDOW_TYPE_REVERSE_MAP = {v: k for k, v in WINDOW_TYPE_MAP.items()}
+
+# Temperature offset limits (per-zone)
+TEMP_OFFSET_MIN = -3.0
+TEMP_OFFSET_MAX = 3.0
+TEMP_OFFSET_STEP = 0.5

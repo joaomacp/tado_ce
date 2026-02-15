@@ -164,9 +164,11 @@ class TadoClimate(ClimateEntity):
         )
         self._attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF, HVACMode.AUTO]
         self._attr_preset_modes = [PRESET_HOME, PRESET_AWAY]
+        self._attr_target_temperature_step = 0.5
+        
+        # v2.1.0: Per-zone min/max temp (will be updated in update() from zone_config_manager)
         self._attr_min_temp = 5
         self._attr_max_temp = 25
-        self._attr_target_temperature_step = 0.5
         
         self._attr_current_temperature = None
         self._attr_target_temperature = None
@@ -193,6 +195,9 @@ class TadoClimate(ClimateEntity):
         
         # v1.9.3: Unsubscribe callback for zones_updated signal
         self._unsub_zones_updated = None
+        
+        # v2.1.0: Unsubscribe callback for zone config changes
+        self._unsub_zone_config = None
 
     # ========== v1.10.0: Helper Methods (Updated for Issue #44 fix) ==========
     
@@ -315,6 +320,8 @@ class TadoClimate(ClimateEntity):
         
         v1.9.6: Don't clear _optimistic_set_at here - let update() preserve
         optimistic hvac_action if API hasn't caught up yet (#44).
+        
+        v2.1.0: Listen for zone config changes to update min/max temp.
         """
         await super().async_added_to_hass()
         
@@ -330,16 +337,45 @@ class TadoClimate(ClimateEntity):
         self._unsub_zones_updated = async_dispatcher_connect(
             self.hass, SIGNAL_ZONES_UPDATED, _handle_zones_updated
         )
+        
+        # v2.1.0: Listen for zone config changes
+        zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+        if zone_config_manager:
+            @callback
+            def _handle_zone_config_change(zone_id: str, key: str, value):
+                """Handle zone config change."""
+                if zone_id == self._zone_id and key in ("min_temp", "max_temp"):
+                    self._update_temp_limits()
+                    self.async_write_ha_state()
+                    _LOGGER.debug(f"{self._zone_name}: Zone config {key} changed to {value}")
+            
+            self._unsub_zone_config = zone_config_manager.add_listener(_handle_zone_config_change)
+            # Initial update of temp limits
+            self._update_temp_limits()
 
     async def async_will_remove_from_hass(self):
         """Unregister signal listener when entity is removed.
         
         v1.9.3: Clean up signal listener to prevent memory leaks.
+        v2.1.0: Clean up zone config listener.
         """
         if self._unsub_zones_updated:
             self._unsub_zones_updated()
             self._unsub_zones_updated = None
+        if self._unsub_zone_config:
+            self._unsub_zone_config()
+            self._unsub_zone_config = None
         await super().async_will_remove_from_hass()
+    
+    def _update_temp_limits(self):
+        """Update min/max temp from zone config.
+        
+        v2.1.0: Per-zone temperature limits.
+        """
+        zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+        if zone_config_manager:
+            self._attr_min_temp = zone_config_manager.get_zone_value(self._zone_id, "min_temp", 5.0)
+            self._attr_max_temp = zone_config_manager.get_zone_value(self._zone_id, "max_temp", 25.0)
 
     @property
     def extra_state_attributes(self):
@@ -627,9 +663,9 @@ class TadoClimate(ClimateEntity):
             "power": "ON",
             "temperature": {"celsius": temperature}
         }
-        # v2.0.2: Use configurable overlay mode (Issue #101 - @leoogermenia)
-        from . import get_overlay_termination
-        termination = get_overlay_termination(self.hass)
+        # v2.1.0: Use per-zone overlay mode (Issue #101 - @leoogermenia)
+        from . import get_zone_overlay_termination
+        termination = get_zone_overlay_termination(self.hass, self._zone_id)
         
         api_success = False
         try:
@@ -678,9 +714,9 @@ class TadoClimate(ClimateEntity):
                 "power": "ON",
                 "temperature": {"celsius": temp}
             }
-            # v2.0.2: Use configurable overlay mode (Issue #101 - @leoogermenia)
-            from . import get_overlay_termination
-            termination = get_overlay_termination(self.hass)
+            # v2.1.0: Use per-zone overlay mode (Issue #101 - @leoogermenia)
+            from . import get_zone_overlay_termination
+            termination = get_zone_overlay_termination(self.hass, self._zone_id)
             
             # Optimistic update BEFORE API call
             old_mode = self._attr_hvac_mode
@@ -719,9 +755,9 @@ class TadoClimate(ClimateEntity):
                 "type": "HEATING",
                 "power": "OFF"
             }
-            # v2.0.2: Use configurable overlay mode (Issue #101 - @leoogermenia)
-            from . import get_overlay_termination
-            termination = get_overlay_termination(self.hass)
+            # v2.1.0: Use per-zone overlay mode (Issue #101 - @leoogermenia)
+            from . import get_zone_overlay_termination
+            termination = get_zone_overlay_termination(self.hass, self._zone_id)
             
             # Optimistic update BEFORE API call
             old_mode = self._attr_hvac_mode
@@ -826,7 +862,8 @@ class TadoClimate(ClimateEntity):
                 "durationInSeconds": duration_minutes * 60
             }
             term_desc = f"for {duration_minutes} minutes"
-        elif overlay == "next_time_block":
+        elif overlay and overlay.upper() == "NEXT_TIME_BLOCK":
+            # v2.1.0: Handle both lowercase (service call) and UPPERCASE (internal)
             termination = {"type": "TADO_MODE"}
             term_desc = "until next schedule block"
         else:
@@ -1026,6 +1063,9 @@ class TadoACClimate(ClimateEntity):
         
         # v1.9.3: Unsubscribe callback for zones_updated signal
         self._unsub_zones_updated = None
+        
+        # v2.1.0: Unsubscribe callback for zone config changes
+        self._unsub_zone_config = None
 
     # ========== v1.10.0: Helper Methods (Updated for Issue #44 fix) ==========
     
@@ -1148,6 +1188,8 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.6: Don't clear _optimistic_set_at here - let update() preserve
         optimistic hvac_action if API hasn't caught up yet (#44).
+        
+        v2.1.0: Listen for zone config changes to update min/max temp.
         """
         await super().async_added_to_hass()
         
@@ -1163,16 +1205,76 @@ class TadoACClimate(ClimateEntity):
         self._unsub_zones_updated = async_dispatcher_connect(
             self.hass, SIGNAL_ZONES_UPDATED, _handle_zones_updated
         )
+        
+        # v2.1.0: Listen for zone config changes
+        zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+        if zone_config_manager:
+            @callback
+            def _handle_zone_config_change(zone_id: str, key: str, value):
+                """Handle zone config change."""
+                if zone_id == self._zone_id and key in ("min_temp", "max_temp"):
+                    self._update_temp_limits()
+                    self.async_write_ha_state()
+                    _LOGGER.debug(f"AC {self._zone_name}: Zone config {key} changed to {value}")
+            
+            self._unsub_zone_config = zone_config_manager.add_listener(_handle_zone_config_change)
+            # Initial update of temp limits
+            self._update_temp_limits()
 
     async def async_will_remove_from_hass(self):
         """Unregister signal listener when entity is removed.
         
         v1.9.3: Clean up signal listener to prevent memory leaks.
+        v2.1.0: Clean up zone config listener.
         """
         if self._unsub_zones_updated:
             self._unsub_zones_updated()
             self._unsub_zones_updated = None
+        if self._unsub_zone_config:
+            self._unsub_zone_config()
+            self._unsub_zone_config = None
         await super().async_will_remove_from_hass()
+    
+    def _update_temp_limits(self):
+        """Update min/max temp from zone config.
+        
+        v2.1.0: Per-zone temperature limits override capabilities.
+        If per-zone value is not set, reset to capabilities default.
+        """
+        zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+        if zone_config_manager:
+            # Get per-zone overrides (use capabilities as defaults)
+            min_temp = zone_config_manager.get_zone_value(self._zone_id, "min_temp", None)
+            max_temp = zone_config_manager.get_zone_value(self._zone_id, "max_temp", None)
+            
+            if min_temp is not None:
+                self._attr_min_temp = min_temp
+            else:
+                # Reset to capabilities default
+                self._attr_min_temp = self._get_capabilities_temp_limit('min', 16)
+            if max_temp is not None:
+                self._attr_max_temp = max_temp
+            else:
+                # Reset to capabilities default
+                self._attr_max_temp = self._get_capabilities_temp_limit('max', 30)
+    
+    def _get_capabilities_temp_limit(self, limit_type: str, default: float) -> float:
+        """Get temperature limit from AC capabilities.
+        
+        Args:
+            limit_type: 'min' or 'max'
+            default: Default value if not found in capabilities
+            
+        Returns:
+            Temperature limit from capabilities or default
+        """
+        ac_caps = self._capabilities.get('ac_capabilities') or {}
+        for mode in ['COOL', 'HEAT', 'AUTO', 'DRY']:
+            if mode in ac_caps and 'temperatures' in ac_caps[mode]:
+                temp_caps = (ac_caps[mode]['temperatures'].get('celsius') or {})
+                if limit_type in temp_caps:
+                    return temp_caps[limit_type]
+        return default
 
     @property
     def extra_state_attributes(self):
@@ -1437,9 +1539,9 @@ class TadoACClimate(ClimateEntity):
                 "type": "AIR_CONDITIONING",
                 "power": "OFF"
             }
-            # v2.0.2: Use configurable overlay mode (Issue #101 - @leoogermenia)
-            from . import get_overlay_termination
-            termination = get_overlay_termination(self.hass)
+            # v2.1.0: Use per-zone overlay mode (Issue #101 - @leoogermenia)
+            from . import get_zone_overlay_termination
+            termination = get_zone_overlay_termination(self.hass, self._zone_id)
             
             # v1.9.2: Await API call with timeout (fixes #44)
             api_success = False
@@ -1758,13 +1860,13 @@ class TadoACClimate(ClimateEntity):
                 setting["horizontalSwing"] = "OFF"
         
         # Termination
-        # v2.0.2: Use configurable overlay mode (Issue #101 - @leoogermenia)
+        # v2.1.0: Use per-zone overlay mode (Issue #101 - @leoogermenia)
         # Timer-based calls still use TIMER termination
         if duration_minutes:
             termination = {"type": "TIMER", "durationInSeconds": duration_minutes * 60}
         else:
-            from . import get_overlay_termination
-            termination = get_overlay_termination(self.hass)
+            from . import get_zone_overlay_termination
+            termination = get_zone_overlay_termination(self.hass, self._zone_id)
         
         _LOGGER.debug(f"AC overlay payload: setting={setting}, termination={termination}")
         

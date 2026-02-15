@@ -18,9 +18,10 @@ import homeassistant.helpers.config_validation as cv
 from .const import (
     DOMAIN, DATA_DIR, CONFIG_FILE, RATELIMIT_FILE,
     MIN_POLLING_INTERVAL, MAX_POLLING_INTERVAL, POLLING_SAFETY_BUFFER,
-    QUOTA_RESERVE_CALLS, QUOTA_RESERVE_PERCENT
+    QUOTA_RESERVE_CALLS, QUOTA_RESERVE_PERCENT, WINDOW_TYPE_U_VALUES
 )
 from .config_manager import ConfigurationManager
+from .zone_config_manager import ZoneConfigManager
 from .async_api import get_async_client
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,13 +30,13 @@ _LOGGER = logging.getLogger(__name__)
 # Platform.SELECT was added in Home Assistant 2021.7
 # For backward compatibility, check if it exists
 try:
-    BASE_PLATFORMS = [Platform.SENSOR, Platform.CLIMATE, Platform.BINARY_SENSOR, Platform.WATER_HEATER, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.BUTTON, Platform.SELECT]
+    BASE_PLATFORMS = [Platform.SENSOR, Platform.CLIMATE, Platform.BINARY_SENSOR, Platform.WATER_HEATER, Platform.DEVICE_TRACKER, Platform.SWITCH, Platform.BUTTON, Platform.SELECT, Platform.NUMBER]
     CALENDAR_PLATFORM = Platform.CALENDAR
 except AttributeError:
     # Older Home Assistant version without Platform.BUTTON or Platform.SELECT
     BASE_PLATFORMS = [Platform.SENSOR, Platform.CLIMATE, Platform.BINARY_SENSOR, Platform.WATER_HEATER, Platform.DEVICE_TRACKER, Platform.SWITCH]
     CALENDAR_PLATFORM = None
-    _LOGGER.debug("Platform.BUTTON/SELECT not available - some entities will not be loaded")
+    _LOGGER.debug("Platform.BUTTON/SELECT/NUMBER not available - some entities will not be loaded")
 
 # v1.6.0: Removed SCRIPT_PATH - no longer using subprocess for sync
 # Legacy tado_api.py is deprecated but kept for reference
@@ -578,10 +579,65 @@ def get_overlay_termination(hass: HomeAssistant) -> dict:
         hass: Home Assistant instance
         
     Returns:
-        {"type": "TADO_MODE"}, {"type": "NEXT_TIME_BLOCK"}, or {"type": "MANUAL"}
+        {"type": "TADO_MODE"} or {"type": "MANUAL"} or {"type": "TIMER", "durationInSeconds": ...}
+        Note: Tado API only accepts MANUAL, TADO_MODE, TIMER (not NEXT_TIME_BLOCK)
     """
     mode = hass.data.get(DOMAIN, {}).get('overlay_mode', 'TADO_MODE')
+    # Map internal storage values to API-accepted values
+    # Tado API only accepts: MANUAL, TADO_MODE, TIMER
+    if mode == "NEXT_TIME_BLOCK":
+        mode = "TADO_MODE"
+    
+    # v2.1.0: Handle TIMER mode with global timer_duration
+    if mode == "TIMER":
+        duration = hass.data.get(DOMAIN, {}).get('timer_duration', 60)
+        return {"type": "TIMER", "durationInSeconds": duration * 60}
+    
     return {"type": mode}
+
+
+def get_zone_overlay_termination(hass: HomeAssistant, zone_id: str) -> dict:
+    """Get the termination dict for overlay API calls with per-zone support.
+    
+    v2.1.0: Per-zone overlay mode support.
+    
+    Priority:
+    1. Per-zone overlay_mode (if zone_config_manager available and zone has override)
+    2. Global overlay_mode (from hass.data cache)
+    
+    Args:
+        hass: Home Assistant instance
+        zone_id: Zone ID to get overlay mode for
+        
+    Returns:
+        {"type": "..."} or {"type": "...", "durationInSeconds": ...} for Timer mode
+    """
+    zone_config_manager = hass.data.get(DOMAIN, {}).get('zone_config_manager')
+    
+    if zone_config_manager:
+        # Get per-zone overlay mode (UPPERCASE values)
+        zone_mode = zone_config_manager.get_zone_value(zone_id, "overlay_mode", None)
+        
+        if zone_mode and zone_mode != "TADO_MODE":
+            # Map to API values
+            # Note: Tado API only accepts MANUAL, TADO_MODE, TIMER
+            # NEXT_TIME_BLOCK maps to TADO_MODE which follows device settings
+            mode_map = {
+                "NEXT_TIME_BLOCK": "TADO_MODE",  # API doesn't accept NEXT_TIME_BLOCK
+                "TIMER": "TIMER",
+                "MANUAL": "MANUAL",
+            }
+            api_mode = mode_map.get(zone_mode, "TADO_MODE")
+            
+            # Handle Timer mode with duration
+            if api_mode == "TIMER":
+                duration = zone_config_manager.get_zone_value(zone_id, "timer_duration", 60)
+                return {"type": "TIMER", "durationInSeconds": duration * 60}
+            
+            return {"type": api_mode}
+    
+    # Fallback to global overlay mode (handles TADO_MODE and when no per-zone config)
+    return get_overlay_termination(hass)
 
 
 async def async_dismiss_api_limit_notification(hass: HomeAssistant) -> None:
@@ -836,27 +892,30 @@ def get_polling_interval(config_manager: ConfigurationManager, cached_ratelimit:
     except Exception as e:
         _LOGGER.debug(f"Could not calculate adaptive polling interval, using default: {e}")
     
-    # v2.0.1: Decision logic - prioritize adaptive, respect user custom override
-    if adaptive_interval is not None:
-        if user_set_custom and custom_interval is not None:
-            # User explicitly set custom interval - use the LONGER one to protect quota
-            if adaptive_interval > custom_interval:
+    # v2.1.0: Decision logic - respect user custom override for high-quota users
+    # Issue #107: Custom intervals below 5 min were being ignored because adaptive
+    # interval is clamped to MIN_POLLING_INTERVAL (5 min) by default.
+    # Fix: When user explicitly sets custom interval, use it directly unless
+    # quota is actually insufficient (not just because of MIN_POLLING_INTERVAL clamp).
+    if user_set_custom and custom_interval is not None:
+        # User explicitly set custom interval - check if quota is actually sufficient
+        if adaptive_interval is not None:
+            # Calculate what the "raw" adaptive interval would be without MIN_POLLING_INTERVAL clamp
+            # If adaptive > custom AND adaptive > MIN_POLLING_INTERVAL, quota is truly insufficient
+            if adaptive_interval > custom_interval and adaptive_interval > MIN_POLLING_INTERVAL:
                 _LOGGER.warning(
                     f"Tado CE: Custom interval ({custom_interval} min) would exceed quota. "
                     f"Using adaptive interval ({adaptive_interval} min) to protect remaining calls."
                 )
                 return adaptive_interval
-            else:
-                # Custom interval is safe, use it
-                _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
-                return custom_interval
-        else:
-            # No custom interval set - use pure adaptive (Day/Night aware)
-            return adaptive_interval
-    elif user_set_custom and custom_interval is not None:
-        # Only custom interval available (no ratelimit data)
-        _log_quota_warning_if_needed(custom_interval, daytime, config_manager)
+        # Custom interval is safe (or no ratelimit data), use it
+        _LOGGER.info(
+            f"Tado CE: Using custom {'day' if daytime else 'night'} interval: {custom_interval} min"
+        )
         return custom_interval
+    elif adaptive_interval is not None:
+        # No custom interval set - use pure adaptive (Day/Night aware)
+        return adaptive_interval
     else:
         # Fallback to default intervals
         return DEFAULT_DAY_INTERVAL if daytime else DEFAULT_NIGHT_INTERVAL
@@ -1431,6 +1490,117 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     return True
 
 
+async def _migrate_to_per_zone_config(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    zone_config_manager: ZoneConfigManager
+) -> None:
+    """Migrate global settings to per-zone configuration.
+    
+    v2.1.0: Called on first startup after upgrade.
+    Migrates:
+    - ufh_zones → per-zone heating_type = "ufh"
+    - ufh_buffer_minutes → per-zone ufh_buffer_minutes
+    - adaptive_preheat_zones → per-zone adaptive_preheat = True
+    - smart_comfort_mode → per-zone (inherit global)
+    - mold_risk_window_type → per-zone window_type
+    - overlay_mode → per-zone (inherit global)
+    """
+    options = entry.options
+    
+    # Check if already migrated
+    if options.get("_per_zone_migrated"):
+        _LOGGER.debug("Per-zone migration already completed, skipping")
+        return
+    
+    # Check if there are any global settings to migrate
+    has_settings_to_migrate = any([
+        options.get("ufh_zones"),
+        options.get("adaptive_preheat_zones"),
+        options.get("smart_comfort_mode"),
+        options.get("mold_risk_window_type"),
+    ])
+    
+    if not has_settings_to_migrate:
+        _LOGGER.debug("No global settings to migrate to per-zone config")
+        # Mark as migrated anyway to prevent future checks
+        new_options = {**options, "_per_zone_migrated": True}
+        hass.config_entries.async_update_entry(entry, options=new_options)
+        return
+    
+    _LOGGER.info("=== Per-Zone Configuration Migration ===")
+    
+    # Load zones info
+    from .data_loader import load_zones_info_file
+    zones_info = await hass.async_add_executor_job(load_zones_info_file)
+    
+    if not zones_info:
+        _LOGGER.warning("No zones info available, skipping per-zone migration")
+        return
+    
+    # Get global settings
+    ufh_zones = options.get("ufh_zones", [])
+    ufh_buffer = options.get("ufh_buffer_minutes", 30)
+    adaptive_preheat_zones = options.get("adaptive_preheat_zones", [])
+    smart_comfort_mode = options.get("smart_comfort_mode", "none")
+    window_type = options.get("mold_risk_window_type", "double_pane")
+    
+    # Get overlay mode from cache or file (already UPPERCASE)
+    from .data_loader import load_overlay_mode
+    overlay_mode = await hass.async_add_executor_job(load_overlay_mode)
+    
+    # v2.1.0: overlay_mode is already UPPERCASE from data_loader
+    # No mapping needed - use directly
+    overlay_mode_internal = overlay_mode  # Already UPPERCASE
+    
+    migrated_count = 0
+    
+    # Apply to each zone
+    for zone in zones_info:
+        zone_id = str(zone.get("id"))
+        zone_type = zone.get("type")
+        zone_name = zone.get("name", f"Zone {zone_id}")
+        
+        config_updates = {}
+        
+        # Heating type (Heating only)
+        if zone_type == "HEATING":
+            if zone_id in ufh_zones:
+                config_updates["heating_type"] = "ufh"
+                config_updates["ufh_buffer_minutes"] = ufh_buffer
+                _LOGGER.debug(f"  Zone {zone_name}: UFH with {ufh_buffer}min buffer")
+            else:
+                config_updates["heating_type"] = "radiator"
+        
+        # Adaptive preheat (Heating + AC)
+        if zone_id in adaptive_preheat_zones:
+            config_updates["adaptive_preheat"] = True
+            _LOGGER.debug(f"  Zone {zone_name}: Adaptive preheat enabled")
+        
+        # Smart comfort mode (inherit global)
+        if smart_comfort_mode != "none":
+            config_updates["smart_comfort_mode"] = smart_comfort_mode
+        
+        # Window type (inherit global)
+        config_updates["window_type"] = window_type
+        
+        # Overlay mode (inherit global)
+        config_updates["overlay_mode"] = overlay_mode_internal
+        
+        # Save zone config
+        for key, value in config_updates.items():
+            await zone_config_manager.async_set_zone_value(zone_id, key, value)
+        
+        if config_updates:
+            migrated_count += 1
+    
+    # Mark as migrated
+    new_options = {**options, "_per_zone_migrated": True}
+    hass.config_entries.async_update_entry(entry, options=new_options)
+    
+    _LOGGER.info(f"Per-zone migration complete: {migrated_count} zones configured")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tado CE from a config entry."""
     _LOGGER.info(
@@ -1581,12 +1751,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     hass.data[DOMAIN]['config_manager'] = config_manager
     
+    # v2.1.0: Initialize ZoneConfigManager for per-zone settings
+    zone_config_manager = ZoneConfigManager(hass, home_id or "default")
+    await zone_config_manager.async_load()
+    hass.data[DOMAIN]['zone_config_manager'] = zone_config_manager
+    _LOGGER.info(f"Zone config manager initialized with {len(zone_config_manager.zones)} zones")
+    
+    # v2.1.0: Migrate global settings to per-zone configuration
+    await _migrate_to_per_zone_config(hass, entry, zone_config_manager)
+    
     # v2.0.2: Load overlay mode into cache (Issue #101 - @leoogermenia)
     # Lesson from v2.0.0: Use async_add_executor_job for file I/O
-    from .data_loader import load_overlay_mode
+    from .data_loader import load_overlay_mode, load_timer_duration
     overlay_mode = await hass.async_add_executor_job(load_overlay_mode)
     hass.data[DOMAIN]['overlay_mode'] = overlay_mode
     _LOGGER.debug(f"Tado CE: Overlay mode loaded: {overlay_mode}")
+    
+    # v2.1.0: Load timer duration into cache
+    timer_duration = await hass.async_add_executor_job(load_timer_duration)
+    hass.data[DOMAIN]['timer_duration'] = timer_duration
+    _LOGGER.debug(f"Tado CE: Timer duration loaded: {timer_duration} minutes")
     
     # v2.0.1: Set Test Mode flag on async client for save_ratelimit() to use
     client = get_async_client(hass)
@@ -2173,13 +2357,134 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _cleanup_entities_by_suffix(entity_registry, domain: str, prefix: str, suffixes: list) -> int:
+    """Remove entities matching prefix and any of the suffixes.
+    
+    Args:
+        entity_registry: HA entity registry
+        domain: Integration domain (e.g., "tado_ce")
+        prefix: unique_id prefix to match (e.g., "tado_ce_zone_")
+        suffixes: List of suffixes to match (e.g., ["_battery", "_connection"])
+    
+    Returns:
+        Number of entities removed
+    """
+    removed = 0
+    for entity_id, entity_entry in list(entity_registry.entities.items()):
+        if entity_entry.platform != domain:
+            continue
+        unique_id = entity_entry.unique_id or ""
+        if unique_id.startswith(prefix) and any(unique_id.endswith(suffix) for suffix in suffixes):
+            _LOGGER.debug(f"  Removing entity: {entity_id} (unique_id: {unique_id})")
+            entity_registry.async_remove(entity_id)
+            removed += 1
+    return removed
+
+
+def _cleanup_entities_by_pattern(entity_registry, domain: str, suffixes: list) -> int:
+    """Remove entities matching any of the suffixes (regardless of prefix).
+    
+    Args:
+        entity_registry: HA entity registry
+        domain: Integration domain (e.g., "tado_ce")
+        suffixes: List of suffixes to match (e.g., ["_child_lock", "_early_start"])
+    
+    Returns:
+        Number of entities removed
+    """
+    removed = 0
+    for entity_id, entity_entry in list(entity_registry.entities.items()):
+        if entity_entry.platform != domain:
+            continue
+        unique_id = entity_entry.unique_id or ""
+        if unique_id.startswith("tado_ce_") and any(unique_id.endswith(suffix) for suffix in suffixes):
+            _LOGGER.debug(f"  Removing entity: {entity_id} (unique_id: {unique_id})")
+            entity_registry.async_remove(entity_id)
+            removed += 1
+    return removed
+
+
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options change.
     
     v2.0.1: When Test Mode is disabled, trigger an API call to refresh
     rate limit data with real values instead of relying on backup.
+    v2.0.3: Auto-cleanup entities when Zone Features are disabled.
     """
     _LOGGER.info("Tado CE: Options changed, reloading integration...")
+    
+    # v2.0.3: Cleanup entities when Zone Features are disabled
+    # Check for cleanup flags set by config_flow before async_create_entry
+    try:
+        from homeassistant.helpers import entity_registry as er
+        entity_registry = er.async_get(hass)
+        
+        domain_data = hass.data.get(DOMAIN, {})
+        total_removed = 0
+        
+        # Zone Configuration cleanup
+        if domain_data.pop("_cleanup_zone_config", False):
+            _LOGGER.info("Tado CE: Zone Configuration disabled - removing zone config entities")
+            zone_config_suffixes = [
+                "_heating_type", "_ufh_buffer", "_adaptive_preheat",
+                "_smart_comfort_mode", "_window_type", "_overlay_mode",
+                "_timer_duration", "_min_temp", "_max_temp", "_temp_offset",
+            ]
+            removed = _cleanup_entities_by_suffix(entity_registry, DOMAIN, "tado_ce_zone_", zone_config_suffixes)
+            total_removed += removed
+            _LOGGER.info(f"  Removed {removed} zone config entities")
+        
+        # Zone Diagnostics cleanup (battery, connection, heating power)
+        if domain_data.pop("_cleanup_zone_diagnostics", False):
+            _LOGGER.info("Tado CE: Zone Diagnostics disabled - removing diagnostic entities")
+            # Device-level entities use serial number pattern: tado_ce_{serial}_*
+            diagnostic_suffixes = ["_battery", "_connection", "_heating", "_ac_power"]
+            removed = _cleanup_entities_by_suffix(entity_registry, DOMAIN, "tado_ce_zone_", diagnostic_suffixes)
+            # Also cleanup device-level battery/connection (tado_ce_{serial}_*)
+            removed += _cleanup_entities_by_pattern(entity_registry, DOMAIN, ["_battery", "_connection"])
+            total_removed += removed
+            _LOGGER.info(f"  Removed {removed} diagnostic entities")
+        
+        # Device Controls cleanup (child lock, early start)
+        if domain_data.pop("_cleanup_device_controls", False):
+            _LOGGER.info("Tado CE: Device Controls disabled - removing device control entities")
+            device_control_suffixes = ["_child_lock", "_early_start"]
+            removed = _cleanup_entities_by_pattern(entity_registry, DOMAIN, device_control_suffixes)
+            total_removed += removed
+            _LOGGER.info(f"  Removed {removed} device control entities")
+        
+        # Boost Buttons cleanup
+        if domain_data.pop("_cleanup_boost_buttons", False):
+            _LOGGER.info("Tado CE: Boost Buttons disabled - removing boost button entities")
+            boost_suffixes = ["_boost", "_smart_boost"]
+            removed = _cleanup_entities_by_pattern(entity_registry, DOMAIN, boost_suffixes)
+            total_removed += removed
+            _LOGGER.info(f"  Removed {removed} boost button entities")
+        
+        # Environment Sensors cleanup (mold risk, comfort level, condensation)
+        if domain_data.pop("_cleanup_environment_sensors", False):
+            _LOGGER.info("Tado CE: Environment Sensors disabled - removing environment sensor entities")
+            env_suffixes = ["_mold_risk", "_comfort_level", "_condensation_risk"]
+            removed = _cleanup_entities_by_suffix(entity_registry, DOMAIN, "tado_ce_zone_", env_suffixes)
+            total_removed += removed
+            _LOGGER.info(f"  Removed {removed} environment sensor entities")
+        
+        # Thermal Analytics cleanup
+        if domain_data.pop("_cleanup_thermal_analytics", False):
+            _LOGGER.info("Tado CE: Thermal Analytics disabled - removing thermal analytics entities")
+            thermal_suffixes = [
+                "_thermal_inertia", "_heating_rate", "_efficiency",
+                "_approach_factor", "_historical_deviation", "_heating_cycles",
+            ]
+            removed = _cleanup_entities_by_suffix(entity_registry, DOMAIN, "tado_ce_zone_", thermal_suffixes)
+            total_removed += removed
+            _LOGGER.info(f"  Removed {removed} thermal analytics entities")
+        
+        if total_removed > 0:
+            _LOGGER.info(f"Tado CE: Total entities removed: {total_removed}")
+            
+    except Exception as e:
+        _LOGGER.warning(f"Tado CE: Could not cleanup entities: {e}")
     
     # v2.0.1: Check if Test Mode was just disabled
     # If so, trigger an API call to get fresh rate limit data

@@ -382,13 +382,14 @@ def load_overlay_mode() -> str:
     """Load overlay mode from storage.
     
     v2.0.2: Issue #101 - Configurable overlay mode.
+    v2.1.0: Added TIMER mode support.
     
     IMPORTANT: This is a SYNC function. Callers in async context
     MUST use `await hass.async_add_executor_job(load_overlay_mode)`.
     Lesson from v2.0.0: Blocking I/O in async context causes warnings.
     
     Returns:
-        "TADO_MODE", "NEXT_TIME_BLOCK", or "MANUAL"
+        "TADO_MODE", "NEXT_TIME_BLOCK", "TIMER", or "MANUAL"
         Defaults to "TADO_MODE" if file doesn't exist.
     """
     file_path = DATA_DIR / OVERLAY_MODE_FILE
@@ -401,7 +402,7 @@ def load_overlay_mode() -> str:
             data = json.load(f)
             mode = data.get("overlay_mode", "TADO_MODE")
             # Validate mode
-            if mode not in ("TADO_MODE", "NEXT_TIME_BLOCK", "MANUAL"):
+            if mode not in ("TADO_MODE", "NEXT_TIME_BLOCK", "TIMER", "MANUAL"):
                 _LOGGER.warning(f"Invalid overlay mode '{mode}', defaulting to TADO_MODE")
                 return "TADO_MODE"
             return mode
@@ -417,19 +418,20 @@ def save_overlay_mode(mode: str) -> bool:
     """Save overlay mode to storage.
     
     v2.0.2: Issue #101 - Configurable overlay mode.
+    v2.1.0: Added TIMER mode support.
     
     IMPORTANT: This is a SYNC function. Callers in async context
     MUST use `await hass.async_add_executor_job(save_overlay_mode, mode)`.
     Lesson from v2.0.0: Blocking I/O in async context causes warnings.
     
     Args:
-        mode: "TADO_MODE", "NEXT_TIME_BLOCK", or "MANUAL"
+        mode: "TADO_MODE", "NEXT_TIME_BLOCK", "TIMER", or "MANUAL"
         
     Returns:
         True if saved successfully, False otherwise.
     """
     # Validate mode
-    if mode not in ("TADO_MODE", "NEXT_TIME_BLOCK", "MANUAL"):
+    if mode not in ("TADO_MODE", "NEXT_TIME_BLOCK", "TIMER", "MANUAL"):
         _LOGGER.error(f"Invalid overlay mode: {mode}")
         return False
     
@@ -447,3 +449,59 @@ def save_overlay_mode(mode: str) -> bool:
     except Exception as e:
         _LOGGER.error(f"Failed to save overlay mode: {e}")
         return False
+
+
+def save_timer_duration(duration: int) -> bool:
+    """Save timer duration to storage.
+    
+    v2.1.0: Timer duration for Timer overlay mode.
+    
+    IMPORTANT: This is a SYNC function. Callers in async context
+    MUST use `await hass.async_add_executor_job(save_timer_duration, duration)`.
+    
+    Args:
+        duration: Duration in minutes (15-180)
+        
+    Returns:
+        True if saved successfully, False otherwise.
+    """
+    # Validate duration
+    if not isinstance(duration, int) or duration < 15 or duration > 180:
+        _LOGGER.error(f"Invalid timer duration: {duration}")
+        return False
+    
+    file_path = DATA_DIR / "timer_duration.json"
+    
+    try:
+        # Ensure directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, 'w') as f:
+            json.dump({"timer_duration": duration}, f)
+        
+        _LOGGER.debug(f"Saved timer duration: {duration} minutes")
+        return True
+    except Exception as e:
+        _LOGGER.error(f"Failed to save timer duration: {e}")
+        return False
+
+
+def load_timer_duration() -> int:
+    """Load timer duration from storage.
+    
+    v2.1.0: Timer duration for Timer overlay mode.
+    
+    Returns:
+        Duration in minutes (default 60 if not set or error).
+    """
+    file_path = DATA_DIR / "timer_duration.json"
+    
+    try:
+        if file_path.exists():
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+                return data.get("timer_duration", 60)
+    except Exception as e:
+        _LOGGER.debug(f"Failed to load timer duration: {e}")
+    
+    return 60  # Default
