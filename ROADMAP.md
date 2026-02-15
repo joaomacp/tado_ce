@@ -10,18 +10,62 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 Features under consideration - need more community feedback or technical research.
 
-**Per-Zone Configuration** (Foundation for multiple features):
-- **Per-Zone Settings UI** - Allow different settings per zone instead of global-only
-- **Zone Device Controls** - Move per-zone settings from Options UI to zone device entities (e.g., `number.living_room_window_u_value`, `switch.living_room_thermal_analytics`)
-  - More intuitive - settings live with the device they affect
-  - Automatable - can adjust settings via HA automations
-  - Consistent with Hub Controls pattern (Presence Mode, Overlay Mode)
-  - Storage: `.storage/tado_ce/zone_config.json` or HA entity registry
-- **Overlay Mode** - Different overlay modes per zone (e.g., bedroom uses NEXT_TIME_BLOCK, living room uses MANUAL)
-- **Mold Risk Window Type** - Different window types per zone for homes with mixed windows ([#90](https://github.com/hiall-fyi/tado_ce/issues/90))
-- **UFH Buffer** - Different buffer times per zone based on floor type
-- **API Call Priority** - Per-zone polling frequency (e.g., main zones more frequent)
-- **Note**: This is a significant UI/UX change that would benefit many features. Feasibility study needed for Zone Device Controls approach.
+**Per-Zone Configuration** (v2.1.0 Target):
+
+Design Direction (2026-02-14, Updated):
+
+1. **Options Flow Restructure** - 4 sections in order:
+   ```
+   ▼ Global Settings (最常用)
+     Outdoor Temp Entity: [sensor.outdoor_temp]
+     Hot Water Timer: [60] min
+     ☐ Test Mode
+   
+   ▼ Zone Features (控制 zone entities 顯示，新用戶預設 OFF)
+     ☐ Zone Diagnostics (battery, connection, heating power)
+     ☐ Device Controls (child lock, early start)
+     ☐ Boost Buttons
+     ☐ Environment Sensors (mold risk, comfort level)
+     ☐ Thermal Analytics
+     ☐ Zone Configuration ← 開咗先有 per-zone settings entities
+   
+   ▼ Opt-In Features (額外 API calls)
+     ☑ Weather Sensors
+     ☑ Mobile Devices
+     ☑ Schedule Calendar
+     ...
+   
+   ▼ Polling & API (進階設定)
+     ...
+   ```
+
+2. **Zone Device Controls** - Per-zone settings as entities (需要開 "Zone Configuration")
+   ```
+   Living Room (Zone Device)
+   └─ Configuration:
+       ├─ select.living_room_heating_type (Radiator/UFH)
+       ├─ number.living_room_ufh_buffer (0-60 min, 只有 UFH 先顯示)
+       ├─ switch.living_room_adaptive_preheat
+       ├─ select.living_room_smart_comfort_mode (none/light/moderate/aggressive)
+       └─ number.living_room_window_u_value (W/m²K)
+   ```
+
+3. **Migration** - Auto-migrate from global settings:
+   - `ufh_zones` → `select.{zone}_heating_type`
+   - `ufh_buffer_minutes` → `number.{zone}_ufh_buffer`
+   - `adaptive_preheat_zones` → `switch.{zone}_adaptive_preheat`
+   - `mold_risk_window_type` → `number.{zone}_window_u_value`
+   - `smart_comfort_mode` → `select.{zone}_smart_comfort_mode`
+   - Remove "Tado CE Exclusive" section (settings moved to Zone Device Controls)
+
+4. **Benefits**:
+   - Sleeker Options UI - only global toggles
+   - Per-zone settings in zone device (more intuitive)
+   - Automation support - entity-based settings
+   - Reduced entity clutter for new users
+
+Future consideration:
+- **Per-Zone Overlay Mode** - Different overlay modes per zone
 
 **Mold Risk Enhancements** ([#90](https://github.com/hiall-fyi/tado_ce/issues/90)):
 - **Global Surface Temp Offset** - Optional offset for users with laser thermometer measurements

@@ -20,9 +20,10 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     _LOGGER.debug("Tado CE button: Setting up...")
     zones_info = await hass.async_add_executor_job(load_zones_info_file)
     
-    # Get config manager to check if schedule calendar is enabled
+    # Get config manager to check feature toggles
     config_manager = hass.data.get(DOMAIN, {}).get('config_manager')
     schedule_calendar_enabled = config_manager.get_schedule_calendar_enabled() if config_manager else False
+    boost_buttons_enabled = config_manager.get_boost_buttons_enabled() if config_manager else True
     
     buttons = []
     
@@ -47,8 +48,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoWaterHeaterTimerButton(hass, zone_id, zone_name, duration)
                     )
             
-            # Create boost buttons for heating zones
-            if zone_type == 'HEATING':
+            # Create boost buttons for heating zones (v2.1.0: controlled by boost_buttons_enabled)
+            if zone_type == 'HEATING' and boost_buttons_enabled:
                 # Boost button (official Tado-style: max temp for 30 min)
                 buttons.append(
                     TadoBoostButton(hass, zone_id, zone_name)
@@ -291,7 +292,7 @@ class TadoRefreshScheduleButton(ButtonEntity):
         self._attr_name = f"{zone_name} Refresh Schedule"
         self._attr_unique_id = f"tado_ce_{zone_id}_refresh_schedule"
         self._attr_device_info = get_zone_device_info(zone_id, zone_name, "HEATING")
-        self._attr_entity_category = EntityCategory.CONFIG
+        # No entity_category = Controls section (action button, not config)
         self._attr_icon = "mdi:calendar-refresh"
     
     async def async_press(self) -> None:

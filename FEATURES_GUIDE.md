@@ -12,8 +12,10 @@ Complete guide to all Tado CE exclusive features, configurations, and usage scen
 6. [Heating Cycle Detection](#-heating-cycle-detection)
 7. [Enhanced Controls](#-enhanced-controls)
 8. [Optional Features](#-optional-features)
-9. [Configuration Scenarios](#-configuration-scenarios)
-10. [Troubleshooting](#-troubleshooting)
+9. [Per-Zone Configuration](#-per-zone-configuration)
+10. [Zone Features Toggles](#-zone-features-toggles)
+11. [Configuration Scenarios](#-configuration-scenarios)
+12. [Troubleshooting](#-troubleshooting)
 
 ---
 
@@ -1889,6 +1891,139 @@ automation:
 - Manual vacation mode control
 - Automatic temperature reduction
 - Easy return to normal mode
+
+---
+
+## 🏠 Per-Zone Configuration
+
+**Available:** v2.1.0+ | **Requirement:** None | **Opt-in via Zone Features Toggle**
+
+Per-Zone Configuration allows you to customize settings for each individual zone instead of using global defaults.
+
+### Overview
+
+Previously, settings like overlay mode, temperature limits, and UFH buffer were global. Now you can:
+- Set different overlay modes per zone (e.g., Timer for bedroom, Manual for living room)
+- Configure temperature limits per zone
+- Mark specific zones as UFH for accurate preheat calculations
+- Apply temperature offsets for calibration
+
+### Configuration Entities
+
+**Heating Zones Only:**
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `select.{zone}_heating_type` | Select | Radiator or Underfloor Heating |
+| `number.{zone}_ufh_buffer` | Number | Extra preheat buffer for UFH (0-60 min) |
+
+**All Climate Zones:**
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `switch.{zone}_adaptive_preheat` | Switch | Enable adaptive preheat for this zone |
+| `select.{zone}_smart_comfort_mode` | Select | Weather compensation level |
+| `select.{zone}_window_type` | Select | Window insulation for mold risk |
+| `select.{zone}_overlay_mode` | Select | How temperature changes behave |
+| `number.{zone}_timer_duration` | Number | Timer duration (15-180 min) |
+| `number.{zone}_min_temp` | Number | Minimum temperature (5-25°C) |
+| `number.{zone}_max_temp` | Number | Maximum temperature (15-30°C) |
+| `number.{zone}_temp_offset` | Number | Temperature calibration (-3.0 to +3.0°C) |
+
+### Zone Overlay Mode Options
+
+| Option | Behavior |
+|--------|----------|
+| **Tado Mode** | Inherit from global setting (default) |
+| **Next Time Block** | Revert at next schedule change |
+| **Timer** | Revert after timer_duration minutes |
+| **Manual** | Stay until manually changed |
+
+### Migration from Global Settings
+
+When upgrading to v2.1.0:
+1. Existing `ufh_zones` → Converted to per-zone `heating_type = UFH`
+2. Existing `ufh_buffer_minutes` → Copied to per-zone `ufh_buffer`
+3. Existing `adaptive_preheat_zones` → Converted to per-zone `adaptive_preheat = ON`
+4. Global `overlay_mode` → Remains as default, zones inherit unless overridden
+
+### Use Cases
+
+**Different Overlay Modes:**
+```yaml
+# Living room: Manual control (stays until changed)
+select.living_room_overlay_mode: Manual
+
+# Bedroom: Timer (reverts after 30 min)
+select.bedroom_overlay_mode: Timer
+number.bedroom_timer_duration: 30
+
+# Office: Next time block (reverts at schedule change)
+select.office_overlay_mode: Next Time Block
+```
+
+**UFH Zone Configuration:**
+```yaml
+# Mark bathroom as UFH with 15 min buffer
+select.bathroom_heating_type: Underfloor Heating
+number.bathroom_ufh_buffer: 15
+```
+
+**Temperature Limits:**
+```yaml
+# Child's room: Limit max temp to 22°C
+number.childs_room_max_temp: 22
+
+# Guest room: Allow lower minimum
+number.guest_room_min_temp: 12
+```
+
+---
+
+## 🎛️ Zone Features Toggles
+
+**Available:** v2.1.0+ | **Requirement:** None | **Options Flow Configuration**
+
+Zone Features Toggles allow you to control which entity types are created, reducing clutter for users who don't need all features.
+
+### Overview
+
+Tado CE creates many entities by default. For users who prefer a minimal setup, these toggles let you disable entity groups you don't use.
+
+### Available Toggles
+
+| Toggle | Entities Controlled | Default (New) | Default (Upgrade) |
+|--------|---------------------|---------------|-------------------|
+| **Zone Diagnostics** | Battery, connection, heating power sensors | OFF | ON |
+| **Device Controls** | Child lock, early start switches | OFF | ON |
+| **Boost Buttons** | Boost, Smart Boost buttons | OFF | ON |
+| **Environment Sensors** | Mold risk, comfort level, condensation risk | OFF | ON |
+| **Thermal Analytics** | Thermal inertia, heating rate, preheat time | OFF | ON |
+| **Zone Configuration** | Per-zone config entities (overlay mode, temp limits, etc.) | OFF | ON |
+
+### Configuration
+
+1. Go to Settings → Devices & Services → Tado CE → Configure
+2. Expand "Zone Features" section
+3. Toggle features ON/OFF as needed
+4. Click Submit
+5. Restart Home Assistant for changes to take effect
+
+### Upgrade Behavior
+
+**New Installs:** All toggles default to OFF for a minimal entity setup. Enable only what you need.
+
+**Upgrades:** All toggles default to ON to preserve existing entities and automations.
+
+### Condensation Risk Sensor (AC Only)
+
+When `environment_sensors_enabled` is ON and you have AC zones, a new Condensation Risk sensor is created:
+
+- **Entity:** `sensor.{zone}_condensation_risk`
+- **States:** None, Low, Medium, High, Critical
+- **Attributes:** dew_point, room_temperature, humidity, ac_setpoint
+
+This sensor warns when AC cooling may cause condensation based on dew point calculations.
 
 ---
 

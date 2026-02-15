@@ -135,9 +135,9 @@ class HeatingCycleDetector:
                 TemperatureReading(time=timestamp, temp=temp)
             )
         else:
-            # Already at limit, log warning once
+            # Already at limit, log once (debug level - this is expected behavior for long cycles)
             if len(self._active_cycle.temperature_readings) == 100:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "Zone %s: Reached 100 temperature readings limit for cycle",
                     self._zone_id
                 )

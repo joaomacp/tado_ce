@@ -23,11 +23,16 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     _LOGGER.debug("Tado CE switch: Setting up...")
     zones_info = await hass.async_add_executor_job(load_zones_info_file)
     
+    # Get config manager for feature toggles
+    from .config_manager import ConfigurationManager
+    config_manager = ConfigurationManager(entry)
+    
     switches = []
     
     # v2.0.2: Away Mode switch removed - replaced by select.tado_ce_presence_mode
     
-    if zones_info:
+    # v2.1.0: Device controls (Early Start, Child Lock) controlled by feature toggle
+    if config_manager.get_device_controls_enabled() and zones_info:
         for zone in zones_info:
             zone_id = str(zone.get('id'))
             zone_name = zone.get('name', f"Zone {zone.get('id')}")
@@ -54,7 +59,11 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
         async_add_entities(switches, True)
         _LOGGER.info(f"Tado CE switches loaded: {len(switches)}")
     else:
-        _LOGGER.info("Tado CE: No switches found")
+        _LOGGER.debug("Tado CE: No switches found (device_controls_enabled may be OFF)")
+    
+    # v2.1.0: Zone configuration switch entities (per-zone settings)
+    from .zone_config_entities import async_setup_zone_config_switch
+    await async_setup_zone_config_switch(hass, entry, async_add_entities)
 
 
 # v2.0.2: TadoAwayModeSwitch class REMOVED

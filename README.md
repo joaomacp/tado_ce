@@ -87,7 +87,9 @@ Tado CE provides comprehensive smart climate control with:
 - **Thermal Analytics** - Heating rate analysis, preheat estimates, thermal inertia, confidence scoring
 - **Smart Comfort** - Historical patterns, preheat advisor, schedule sensors, AI recommendations
 - **Enhanced Controls** - Smart boost, hot water timer, immediate refresh, temperature offset
-- **Environment Monitoring** - Mold risk assessment, comfort level tracking
+- **Environment Monitoring** - Mold risk assessment, comfort level tracking, condensation risk (AC)
+- **Per-Zone Configuration** - Individual overlay modes, temperature limits, UFH settings per zone (v2.1.0)
+- **Zone Features Toggles** - Control which entity types are created for a minimal or full setup (v2.1.0)
 - **Optional Features** - Schedule calendar, boiler flow temperature, device tracking, home state sync
 
 See [FEATURES_GUIDE.md](FEATURES_GUIDE.md) for detailed documentation, configuration instructions, and usage scenarios for all features.
@@ -126,6 +128,11 @@ Quick overview of entities created by Tado CE:
 - **API Monitoring Sensors**: Next/Last Sync, Polling Interval, Call History, API Call Breakdown - no templates required!
 - **Thermal Analytics**: Heating rate analysis, thermal inertia, preheat estimates with confidence scoring (TRV zones only)
 - **Quota Reserve Protection**: Automatically pauses polling when quota critically low (≤5% or ≤5 calls), reserves quota for manual operations, auto-resumes after API reset
+
+**New in v2.1.0**:
+- **Per-Zone Configuration**: Heating type, overlay mode, temperature limits, UFH buffer, temp offset per zone
+- **Condensation Risk Sensor**: Dew point-based condensation warning for AC zones
+- **Zone Features Toggles**: Control entity visibility (diagnostics, controls, boost, environment, thermal, zone config)
 
 ---
 

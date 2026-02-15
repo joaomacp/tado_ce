@@ -176,7 +176,7 @@ class AdaptivePreheatManager:
         """Trigger heating for a zone.
         
         Sets a heating overlay with the target temperature from the next schedule.
-        Uses NEXT_TIME_BLOCK termination so it auto-clears when schedule starts.
+        Uses TADO_MODE termination which follows device settings (typically "until next schedule block").
         
         Args:
             zone_id: Zone ID to trigger heating for
@@ -225,9 +225,11 @@ class AdaptivePreheatManager:
                 return
         
         # Set heating overlay via API
+        # Note: TADO_MODE termination = "until next schedule block" in Tado API
+        # The API doesn't accept NEXT_TIME_BLOCK directly
         _LOGGER.info(
             f"Adaptive Preheat: Triggering {zone_name} to {target_temp}°C "
-            f"(NEXT_TIME_BLOCK termination)"
+            f"(until next schedule block)"
         )
         
         try:
@@ -239,7 +241,8 @@ class AdaptivePreheatManager:
                 "power": "ON",
                 "temperature": {"celsius": target_temp}
             }
-            termination = {"type": "NEXT_TIME_BLOCK"}
+            # TADO_MODE = follows device settings, which defaults to "until next schedule block"
+            termination = {"type": "TADO_MODE"}
             
             success = await client.set_zone_overlay(zone_id, setting, termination)
             
@@ -247,7 +250,7 @@ class AdaptivePreheatManager:
                 self._active_overlays[zone_id] = {
                     'target_temp': target_temp,
                     'triggered_at': datetime.now(),
-                    'termination': 'NEXT_TIME_BLOCK'
+                    'termination': 'TADO_MODE'
                 }
                 _LOGGER.info(f"Adaptive Preheat: {zone_name} overlay set successfully")
             else:
@@ -276,7 +279,7 @@ class AdaptivePreheatManager:
             _LOGGER.debug(f"Adaptive Preheat: {zone_name} no active overlay to clear")
             return
         
-        # The overlay should auto-clear with NEXT_TIME_BLOCK termination
+        # The overlay should auto-clear with TADO_MODE termination (follows device settings)
         # Just remove from our tracking
         del self._active_overlays[zone_id]
         _LOGGER.info(

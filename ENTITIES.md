@@ -2,6 +2,52 @@
 
 Complete list of all entities created by Tado CE integration.
 
+## 📋 v2.1.0 Changes
+
+### Per-Zone Configuration Entities
+New configuration entities for each zone (controlled by `zone_configuration_enabled` toggle):
+
+**Heating Zones Only:**
+- **Heating Type** (`select.{zone}_heating_type`): Select heating system type
+  - Options: `Radiator` (default), `Underfloor Heating`
+  - UFH zones get automatic buffer time for preheat calculations
+- **UFH Buffer** (`number.{zone}_ufh_buffer`): Extra preheat buffer for UFH zones (0-60 minutes)
+  - Only visible when Heating Type = Underfloor Heating
+
+**All Climate Zones (Heating + AC):**
+- **Adaptive Preheat** (`switch.{zone}_adaptive_preheat`): Enable/disable adaptive preheat for this zone
+- **Smart Comfort Mode** (`select.{zone}_smart_comfort_mode`): Per-zone weather compensation
+  - Options: `None`, `Light`, `Moderate`, `Aggressive`
+- **Window Type** (`select.{zone}_window_type`): Window insulation for mold risk calculation
+  - Options: `Single Pane`, `Double Pane`, `Triple Pane`, `Passive House`
+- **Zone Overlay Mode** (`select.{zone}_overlay_mode`): How temperature changes behave
+  - Options: `Tado Mode` (inherit global), `Next Time Block`, `Timer`, `Manual`
+- **Timer Duration** (`number.{zone}_timer_duration`): Duration when overlay mode = Timer (15-180 min)
+- **Min Temperature** (`number.{zone}_min_temp`): Minimum allowed temperature (5-25°C)
+- **Max Temperature** (`number.{zone}_max_temp`): Maximum allowed temperature (15-30°C)
+- **Temperature Offset** (`number.{zone}_temp_offset`): Temperature calibration offset (-3.0 to +3.0°C)
+
+### Condensation Risk Sensor (AC Zones Only)
+- **Condensation Risk** (`sensor.{zone}_condensation_risk`): Risk of condensation when AC is cooling
+  - States: `None`, `Low`, `Medium`, `High`, `Critical`
+  - **Attributes**: `dew_point`, `room_temperature`, `humidity`, `ac_setpoint`
+  - Controlled by `environment_sensors_enabled` toggle
+
+### Zone Features Toggles (Options Flow)
+New toggles in Options → Zone Features to control entity visibility:
+- **Zone Diagnostics** (`zone_diagnostics_enabled`): Battery, connection, heating power sensors
+- **Device Controls** (`device_controls_enabled`): Child lock, early start switches
+- **Boost Buttons** (`boost_buttons_enabled`): Boost and Smart Boost buttons
+- **Environment Sensors** (`environment_sensors_enabled`): Mold risk, comfort level, condensation risk
+- **Thermal Analytics** (`thermal_analytics_enabled`): Thermal analytics sensors
+- **Zone Configuration** (`zone_configuration_enabled`): Per-zone config entities
+
+**Default Behavior:**
+- New installs: All toggles OFF (minimal entities)
+- Upgrades: All toggles ON (preserve existing entities)
+
+---
+
 ## 📋 v2.0.2 Changes
 
 ### Presence Mode Select (Breaking Change)

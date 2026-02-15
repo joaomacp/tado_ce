@@ -2,6 +2,29 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [2.1.0] - 2026-02-15
+
+**Per-Zone Configuration**
+
+### Features
+- **Per-Zone Overlay Mode** - Configure overlay termination per zone (Tado Mode, Timer, Manual)
+- **Per-Zone Timer Duration** - Set custom timer duration per zone (1-1440 minutes)
+
+### Bug Fixes
+- **Fixed NEXT_TIME_BLOCK API error** - Tado API only accepts `MANUAL`, `TADO_MODE`, `TIMER` as termination types
+  - `adaptive_preheat.py` was sending `NEXT_TIME_BLOCK` directly to API
+  - `get_overlay_termination()` was returning `NEXT_TIME_BLOCK` without mapping
+  - `get_zone_overlay_termination()` was mapping `next_change` to `NEXT_TIME_BLOCK`
+  - All now correctly map to `TADO_MODE` which follows device settings (typically "until next schedule block")
+
+- **Fixed custom polling interval below 5 minutes still not working** ([#107](https://github.com/hiall-fyi/tado_ce/issues/107) - @jakeycrx)
+  - v2.0.2 fix was incomplete: adaptive interval was still being clamped to 5 min minimum
+  - When adaptive (5 min) > custom (1-2 min), system incorrectly used adaptive
+  - Now: custom interval is used directly when user explicitly sets it, unless quota is truly insufficient
+
+### Improvements
+- **Simplified Options UI** - Moved Test Mode from separate Developer section to Tado CE Exclusive section (4 sections instead of 5)
+
 ## [2.0.2] - 2026-02-14
 
 **Presence Mode Select & Configurable Overlay Mode**

@@ -616,6 +616,83 @@ class ConfigurationManager:
             return float(threshold)
         return 0.1
     
+    # =========================================================================
+    # Zone Features Toggles (v2.1.0)
+    # =========================================================================
+    
+    def get_zone_diagnostics_enabled(self) -> bool:
+        """Check if Zone Diagnostics entities are enabled.
+        
+        v2.1.0: Controls visibility of battery, connection, heating power sensors.
+        New installs: OFF (minimal entities)
+        Upgrades: ON (preserve existing entities)
+        
+        Returns:
+            True if Zone Diagnostics entities should be created
+        """
+        return self._get_option('zone_diagnostics_enabled', True)
+    
+    def get_device_controls_enabled(self) -> bool:
+        """Check if Device Controls entities are enabled.
+        
+        v2.1.0: Controls visibility of child lock, early start switches.
+        New installs: OFF (minimal entities)
+        Upgrades: ON (preserve existing entities)
+        
+        Returns:
+            True if Device Controls entities should be created
+        """
+        return self._get_option('device_controls_enabled', True)
+    
+    def get_boost_buttons_enabled(self) -> bool:
+        """Check if Boost Buttons are enabled.
+        
+        v2.1.0: Controls visibility of boost buttons.
+        New installs: OFF (minimal entities)
+        Upgrades: ON (preserve existing entities)
+        
+        Returns:
+            True if Boost Buttons should be created
+        """
+        return self._get_option('boost_buttons_enabled', True)
+    
+    def get_environment_sensors_enabled(self) -> bool:
+        """Check if Environment Sensors are enabled.
+        
+        v2.1.0: Controls visibility of mold risk, comfort level, condensation risk.
+        New installs: OFF (minimal entities)
+        Upgrades: ON (preserve existing entities)
+        
+        Returns:
+            True if Environment Sensors should be created
+        """
+        return self._get_option('environment_sensors_enabled', True)
+    
+    def get_thermal_analytics_enabled(self) -> bool:
+        """Check if Thermal Analytics sensors are enabled.
+        
+        v2.1.0: Controls visibility of thermal analytics sensors.
+        New installs: OFF (minimal entities)
+        Upgrades: ON (preserve existing entities)
+        
+        Returns:
+            True if Thermal Analytics sensors should be created
+        """
+        return self._get_option('thermal_analytics_enabled', True)
+    
+    def get_zone_configuration_enabled(self) -> bool:
+        """Check if Zone Configuration entities are enabled.
+        
+        v2.1.0: Controls visibility of per-zone config entities
+        (heating type, UFH buffer, overlay mode, temp limits, etc.)
+        New installs: OFF (minimal entities)
+        Upgrades: ON (preserve existing entities)
+        
+        Returns:
+            True if Zone Configuration entities should be created
+        """
+        return self._get_option('zone_configuration_enabled', True)
+    
     def sync_all_to_config_json(self) -> None:
         """Sync all configuration values to config.json for tado_api.py to read.
         

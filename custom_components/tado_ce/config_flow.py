@@ -388,58 +388,64 @@ class TadoCEConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TadoCEOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for Tado CE with collapsible sections."""
+    """Handle options flow for Tado CE with user mental model sections.
+    
+    v2.1.0: Restructured into 4 sections based on user mental model:
+    1. Tado CE Exclusive (collapsed) - CE-only features + Test Mode
+    2. Tado Data (collapsed) - Extra API calls for Tado data
+    3. Settings (collapsed) - Global default values
+    4. Polling & API (collapsed) - API management
+    
+    CORE features (always ON, not in UI):
+    - Zone Diagnostics, Device Controls, Boost Buttons, Environment Sensors
+    
+    Removed (Per-Zone handles these):
+    - ufh_buffer_minutes, ufh_zones, adaptive_preheat_zones
+    """
 
     def __init__(self, config_entry):
         """Initialize options flow."""
         super().__init__()
 
     async def async_step_init(self, user_input=None):
-        """Manage the options with collapsible sections."""
+        """Manage the options with user mental model sections."""
         errors = {}
         
-        # v2.0.0: Load zone names for UFH zone selector
-        from .data_loader import load_zones_info_file
-        zones_info = await self.hass.async_add_executor_job(load_zones_info_file)
-        heating_zones = []
-        if zones_info:
-            for zone in zones_info:
-                if zone.get('type') == 'HEATING':
-                    zone_id = str(zone.get('id'))
-                    zone_name = zone.get('name', f"Zone {zone_id}")
-                    heating_zones.append({"value": zone_id, "label": zone_name})
-        
         if user_input is not None:
-            # Flatten nested section data
             processed_input = {}
-            
-            # Flatten tado_features section (official Tado features)
-            if 'tado_features' in user_input:
-                tado = user_input['tado_features']
-                for key in ['weather_enabled', 'mobile_devices_enabled', 'mobile_devices_frequent_sync', 'home_state_sync_enabled', 'offset_enabled']:
-                    if key in tado:
-                        processed_input[key] = tado[key]
             
             # Flatten tado_ce_exclusive section
             if 'tado_ce_exclusive' in user_input:
-                exclusive = user_input['tado_ce_exclusive']
-                for key in ['ufh_buffer_minutes', 'ufh_zones', 'adaptive_preheat_enabled', 'adaptive_preheat_zones', 'hot_water_timer_duration', 'schedule_calendar_enabled', 'test_mode_enabled']:
-                    if key in exclusive:
-                        processed_input[key] = exclusive[key]
+                section = user_input['tado_ce_exclusive']
+                for key in ['smart_comfort_enabled', 'thermal_analytics_enabled', 'adaptive_preheat_enabled',
+                           'schedule_calendar_enabled', 'zone_configuration_enabled', 'test_mode_enabled']:
+                    if key in section:
+                        processed_input[key] = section[key]
             
-            # Flatten smart_comfort_settings section (includes thermal analytics)
-            if 'smart_comfort_settings' in user_input:
-                smart_comfort = user_input['smart_comfort_settings']
-                for key in ['smart_comfort_enabled', 'outdoor_temp_entity', 'smart_comfort_mode', 'use_feels_like', 'mold_risk_window_type', 'smart_comfort_history_days', 'heating_cycle_history_days', 'heating_cycle_min_cycles', 'heating_cycle_inertia_threshold']:
-                    if key in smart_comfort:
-                        processed_input[key] = smart_comfort[key]
+            # Flatten tado_data section
+            if 'tado_data' in user_input:
+                section = user_input['tado_data']
+                for key in ['weather_enabled', 'home_state_sync_enabled', 'mobile_devices_enabled',
+                           'mobile_devices_frequent_sync', 'offset_enabled']:
+                    if key in section:
+                        processed_input[key] = section[key]
+            
+            # Flatten settings section
+            if 'settings' in user_input:
+                section = user_input['settings']
+                for key in ['outdoor_temp_entity', 'hot_water_timer_duration',
+                           'smart_comfort_mode', 'use_feels_like', 'mold_risk_window_type', 'smart_comfort_history_days',
+                           'heating_cycle_history_days', 'heating_cycle_min_cycles', 'heating_cycle_inertia_threshold']:
+                    if key in section:
+                        processed_input[key] = section[key]
             
             # Flatten polling_api section
             if 'polling_api' in user_input:
-                polling = user_input['polling_api']
-                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 'refresh_debounce_seconds', 'api_history_retention_days', 'quota_reserve_enabled']:
-                    if key in polling:
-                        processed_input[key] = polling[key]
+                section = user_input['polling_api']
+                for key in ['day_start_hour', 'night_start_hour', 'custom_day_interval', 'custom_night_interval', 
+                           'refresh_debounce_seconds', 'api_history_retention_days', 'quota_reserve_enabled']:
+                    if key in section:
+                        processed_input[key] = section[key]
             
             # Handle custom day interval
             day_interval_str = processed_input.get('custom_day_interval', '')
@@ -474,6 +480,23 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                 processed_input['custom_night_interval'] = None
             
             if not errors:
+                # v2.0.3: Save previous feature states for cleanup in async_reload_entry
+                prev_options = self.config_entry.options
+                cleanup_flags = {}
+                
+                # Zone Configuration cleanup
+                if prev_options.get('zone_configuration_enabled', True) and not processed_input.get('zone_configuration_enabled', True):
+                    cleanup_flags["_cleanup_zone_config"] = True
+                    _LOGGER.info("Zone Configuration disabled: cleanup scheduled")
+                
+                # Thermal Analytics cleanup
+                if prev_options.get('thermal_analytics_enabled', True) and not processed_input.get('thermal_analytics_enabled', True):
+                    cleanup_flags["_cleanup_thermal_analytics"] = True
+                    _LOGGER.info("Thermal Analytics disabled: cleanup scheduled")
+                
+                if cleanup_flags:
+                    self.hass.data.setdefault(DOMAIN, {}).update(cleanup_flags)
+                
                 return self.async_create_entry(title="", data=processed_input)
 
         options = self.config_entry.options
@@ -483,55 +506,42 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                # === Tado Features (official Tado data) ===
-                vol.Required("tado_features"): data_entry_flow.section(
-                    vol.Schema({
-                        vol.Optional('weather_enabled', default=options.get('weather_enabled', False)): BooleanSelector(),
-                        vol.Optional('mobile_devices_enabled', default=options.get('mobile_devices_enabled', False)): BooleanSelector(),
-                        vol.Optional('mobile_devices_frequent_sync', default=options.get('mobile_devices_frequent_sync', False)): BooleanSelector(),
-                        vol.Optional('home_state_sync_enabled', default=options.get('home_state_sync_enabled', False)): BooleanSelector(),
-                        vol.Optional('offset_enabled', default=options.get('offset_enabled', False)): BooleanSelector(),
-                    }),
-                    {"collapsed": True},
-                ),
-                
-                # === Tado CE Exclusive ===
+                # === Tado CE Exclusive (collapsed) ===
                 vol.Required("tado_ce_exclusive"): data_entry_flow.section(
                     vol.Schema({
+                        vol.Optional('smart_comfort_enabled', default=options.get('smart_comfort_enabled', False)): BooleanSelector(),
+                        vol.Optional('thermal_analytics_enabled', default=options.get('thermal_analytics_enabled', False)): BooleanSelector(),
                         vol.Optional('adaptive_preheat_enabled', default=options.get('adaptive_preheat_enabled', False)): BooleanSelector(),
-                        vol.Optional('adaptive_preheat_zones', default=options.get('adaptive_preheat_zones', [])): SelectSelector(
-                            SelectSelectorConfig(
-                                options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
-                                multiple=True,
-                                mode=SelectSelectorMode.DROPDOWN
-                            )
-                        ),
-                        vol.Optional('ufh_buffer_minutes', default=options.get('ufh_buffer_minutes', 0)): NumberSelector(
-                            NumberSelectorConfig(min=0, max=60, step=5, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
-                        ),
-                        vol.Optional('ufh_zones', default=options.get('ufh_zones', [])): SelectSelector(
-                            SelectSelectorConfig(
-                                options=heating_zones if heating_zones else [{"value": "", "label": "No zones available"}],
-                                multiple=True,
-                                mode=SelectSelectorMode.DROPDOWN
-                            )
-                        ),
-                        vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
-                            NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
-                        ),
                         vol.Optional('schedule_calendar_enabled', default=options.get('schedule_calendar_enabled', False)): BooleanSelector(),
+                        vol.Optional('zone_configuration_enabled', default=options.get('zone_configuration_enabled', False)): BooleanSelector(),
                         vol.Optional('test_mode_enabled', default=options.get('test_mode_enabled', False)): BooleanSelector(),
                     }),
                     {"collapsed": True},
                 ),
                 
-                # === Smart Comfort Settings (includes thermal analytics) ===
-                vol.Required("smart_comfort_settings"): data_entry_flow.section(
+                # === Tado Data (collapsed) ===
+                vol.Required("tado_data"): data_entry_flow.section(
                     vol.Schema({
-                        vol.Optional('smart_comfort_enabled', default=options.get('smart_comfort_enabled', False)): BooleanSelector(),
+                        vol.Optional('weather_enabled', default=options.get('weather_enabled', False)): BooleanSelector(),
+                        vol.Optional('home_state_sync_enabled', default=options.get('home_state_sync_enabled', False)): BooleanSelector(),
+                        vol.Optional('mobile_devices_enabled', default=options.get('mobile_devices_enabled', False)): BooleanSelector(),
+                        vol.Optional('mobile_devices_frequent_sync', default=options.get('mobile_devices_frequent_sync', False)): BooleanSelector(),
+                        vol.Optional('offset_enabled', default=options.get('offset_enabled', False)): BooleanSelector(),
+                    }),
+                    {"collapsed": True},
+                ),
+                
+                # === Settings (collapsed) ===
+                vol.Required("settings"): data_entry_flow.section(
+                    vol.Schema({
+                        # General
                         vol.Optional('outdoor_temp_entity', default=options.get('outdoor_temp_entity', '')): EntitySelector(
                             EntitySelectorConfig(domain=["sensor", "weather"])
                         ),
+                        vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
+                            NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
+                        ),
+                        # Smart Comfort defaults (Per-Zone can override)
                         vol.Optional('smart_comfort_mode', default=options.get('smart_comfort_mode', options.get('weather_compensation', 'none'))): SelectSelector(
                             SelectSelectorConfig(
                                 options=["none", "light", "moderate", "aggressive"],
@@ -550,6 +560,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                         vol.Optional('smart_comfort_history_days', default=options.get('smart_comfort_history_days', 7)): NumberSelector(
                             NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
                         ),
+                        # Thermal Analytics settings
                         vol.Optional('heating_cycle_history_days', default=options.get('heating_cycle_history_days', 7)): NumberSelector(
                             NumberSelectorConfig(min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d")
                         ),
@@ -563,7 +574,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                     {"collapsed": True},
                 ),
                 
-                # === Polling & API Management ===
+                # === Polling & API (collapsed) ===
                 vol.Required("polling_api"): data_entry_flow.section(
                     vol.Schema({
                         vol.Required('day_start_hour', default=options.get('day_start_hour', 7)): NumberSelector(

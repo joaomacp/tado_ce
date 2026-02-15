@@ -145,18 +145,23 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                     sensors.extend([
                         TadoTemperatureSensor(zone_id, zone_name, zone_type),
                         TadoHumiditySensor(zone_id, zone_name, zone_type),
-                        TadoHeatingPowerSensor(zone_id, zone_name, zone_type),
                         TadoTargetTempSensor(zone_id, zone_name, zone_type),
                         TadoOverlaySensor(zone_id, zone_name, zone_type),
-                        # v1.9.0: Environment sensors (always enabled)
-                        TadoMoldRiskSensor(zone_id, zone_name, zone_type),
-                        TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),  # v2.0.1
-                        TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                     ])
-                    # v2.0.1 FIX: Thermal Analytics for ALL zones with heatingPower (#91)
-                    # Previously TRV-only, now includes SU02 (Smart Thermostat) zones
+                    # v2.1.0: Zone Diagnostics sensors (opt-in via feature toggle)
+                    if config_manager.get_zone_diagnostics_enabled():
+                        sensors.append(TadoHeatingPowerSensor(zone_id, zone_name, zone_type))
+                    # v2.1.0: Environment sensors (opt-in via feature toggle)
+                    if config_manager.get_environment_sensors_enabled():
+                        sensors.extend([
+                            TadoMoldRiskSensor(zone_id, zone_name, zone_type),
+                            TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),
+                            TadoComfortLevelSensor(zone_id, zone_name, zone_type),
+                        ])
+                    # v2.1.0: Thermal Analytics (opt-in via feature toggle)
+                    # v2.0.1 FIX: For ALL zones with heatingPower (#91)
                     heating_cycle_coordinator = hass.data.get(DOMAIN, {}).get('heating_cycle_coordinator')
-                    if zone_id in zones_with_heating_power:
+                    if config_manager.get_thermal_analytics_enabled() and zone_id in zones_with_heating_power:
                         if heating_cycle_coordinator:
                             sensors.extend([
                                 TadoThermalInertiaSensor(heating_cycle_coordinator, zone_id, zone_name, zone_type),
@@ -186,11 +191,15 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                         TadoACPowerSensor(zone_id, zone_name, zone_type),
                         TadoTargetTempSensor(zone_id, zone_name, zone_type),
                         TadoOverlaySensor(zone_id, zone_name, zone_type),
-                        # v1.9.0: Environment sensors (always enabled)
-                        TadoMoldRiskSensor(zone_id, zone_name, zone_type),
-                        TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),  # v2.0.1
-                        TadoComfortLevelSensor(zone_id, zone_name, zone_type),
                     ])
+                    # v2.1.0: Environment sensors (opt-in via feature toggle)
+                    if config_manager.get_environment_sensors_enabled():
+                        sensors.extend([
+                            TadoMoldRiskSensor(zone_id, zone_name, zone_type),
+                            TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),
+                            TadoComfortLevelSensor(zone_id, zone_name, zone_type),
+                            TadoCondensationRiskSensor(zone_id, zone_name, zone_type),
+                        ])
                     # v1.9.0: Smart Comfort sensors for AC (opt-in)
                     # v1.11.0: Removed TadoThermalRateSensor, TadoTimeToTargetSensor (replaced by heating cycle analysis)
                     if config_manager.get_smart_comfort_enabled():
@@ -213,45 +222,47 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     
     # Device sensors (battery + connection) - track seen serials to avoid duplicates
     # Prioritize HEATING zones over HOT_WATER/AIR_CONDITIONING for device assignment (#56)
-    try:
-        zones_info = await hass.async_add_executor_job(load_zones_info_file)
-        if zones_info:
-            # Build mapping: serial -> list of (zone_id, zone_name, zone_type, device)
-            device_zones: dict[str, list[tuple]] = {}
-            for zone in zones_info:
-                zone_id = str(zone.get('id'))
-                zone_name = zone.get('name', f"Zone {zone_id}")
-                zone_type = zone.get('type', 'HEATING')
-                for device in zone.get('devices', []):
-                    serial = device.get('shortSerialNo')
-                    if serial:
-                        if serial not in device_zones:
-                            device_zones[serial] = []
-                        device_zones[serial].append((zone_id, zone_name, zone_type, device))
-            
-            # For each device, pick the best zone (HEATING > HOT_WATER > AIR_CONDITIONING)
-            for serial, zone_list in device_zones.items():
-                # Sort by zone type priority: HEATING first
-                def zone_priority(item):
-                    zone_type = item[2]
-                    if zone_type == 'HEATING':
-                        return 0
-                    elif zone_type == 'AIR_CONDITIONING':
-                        return 1
-                    else:  # HOT_WATER
-                        return 2
+    # v2.1.0: Controlled by zone_diagnostics_enabled feature toggle
+    if config_manager.get_zone_diagnostics_enabled():
+        try:
+            zones_info = await hass.async_add_executor_job(load_zones_info_file)
+            if zones_info:
+                # Build mapping: serial -> list of (zone_id, zone_name, zone_type, device)
+                device_zones: dict[str, list[tuple]] = {}
+                for zone in zones_info:
+                    zone_id = str(zone.get('id'))
+                    zone_name = zone.get('name', f"Zone {zone_id}")
+                    zone_type = zone.get('type', 'HEATING')
+                    for device in zone.get('devices', []):
+                        serial = device.get('shortSerialNo')
+                        if serial:
+                            if serial not in device_zones:
+                                device_zones[serial] = []
+                            device_zones[serial].append((zone_id, zone_name, zone_type, device))
                 
-                zone_list.sort(key=zone_priority)
-                zone_id, zone_name, zone_type, device = zone_list[0]
-                
-                # Battery sensor (if device has battery)
-                if 'batteryState' in device:
-                    sensors.append(TadoBatterySensor(zone_id, zone_name, zone_type, device, zones_info))
-                # Connection sensor (all devices)
-                if 'connectionState' in device:
-                    sensors.append(TadoDeviceConnectionSensor(zone_id, zone_name, zone_type, device, zones_info))
-    except Exception as e:
-        _LOGGER.warning(f"Failed to load device info: {e}")
+                # For each device, pick the best zone (HEATING > HOT_WATER > AIR_CONDITIONING)
+                for serial, zone_list in device_zones.items():
+                    # Sort by zone type priority: HEATING first
+                    def zone_priority(item):
+                        zone_type = item[2]
+                        if zone_type == 'HEATING':
+                            return 0
+                        elif zone_type == 'AIR_CONDITIONING':
+                            return 1
+                        else:  # HOT_WATER
+                            return 2
+                    
+                    zone_list.sort(key=zone_priority)
+                    zone_id, zone_name, zone_type, device = zone_list[0]
+                    
+                    # Battery sensor (if device has battery)
+                    if 'batteryState' in device:
+                        sensors.append(TadoBatterySensor(zone_id, zone_name, zone_type, device, zones_info))
+                    # Connection sensor (all devices)
+                    if 'connectionState' in device:
+                        sensors.append(TadoDeviceConnectionSensor(zone_id, zone_name, zone_type, device, zones_info))
+        except Exception as e:
+            _LOGGER.warning(f"Failed to load device info: {e}")
     
     async_add_entities(sensors, True)
     _LOGGER.info(f"Tado CE sensors loaded: {len(sensors)}")
@@ -3044,6 +3055,216 @@ class TadoMoldRiskPercentageSensor(TadoBaseSensor):
         except Exception as e:
             _LOGGER.debug(f"Error calculating surface RH for zone {self._zone_id}: {e}")
             return None
+
+
+class TadoCondensationRiskSensor(TadoBaseSensor):
+    """Condensation risk sensor for AC zones.
+    
+    v2.1.0: Calculates condensation risk on window exterior when AC is running.
+    When AC cools the room, the window's outer surface can drop below outdoor dew point,
+    causing condensation on the outside of the window.
+    
+    Uses per-zone window_type configuration for U-value.
+    
+    Risk Levels (based on margin between window outer surface temp and outdoor dew point):
+    - Critical: <2°C margin (condensation likely)
+    - High: 2-4°C margin (elevated risk)
+    - Medium: 4-6°C margin (moderate risk)
+    - Low: >6°C margin (safe)
+    
+    State: Risk level text (Critical/High/Medium/Low)
+    """
+    
+    def __init__(self, zone_id: str, zone_name: str, zone_type: str = "AIR_CONDITIONING"):
+        super().__init__(zone_id, zone_name, zone_type)
+        self._attr_name = f"{zone_name} Condensation Risk"
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_condensation_risk"
+        self._attr_icon = "mdi:water-alert"
+        self._attr_translation_key = "condensation_risk"
+        
+        # Attributes
+        self._room_temp: float | None = None
+        self._outdoor_temp: float | None = None
+        self._outdoor_humidity: float | None = None
+        self._outdoor_dew_point: float | None = None
+        self._window_outer_surface_temp: float | None = None
+        self._margin: float | None = None
+        self._window_type: str = "double_pane"
+        self._u_value: float | None = None
+    
+    @property
+    def extra_state_attributes(self):
+        return {
+            "room_temperature": self._room_temp,
+            "outdoor_temperature": self._outdoor_temp,
+            "outdoor_humidity": self._outdoor_humidity,
+            "outdoor_dew_point": self._outdoor_dew_point,
+            "window_outer_surface_temp": self._window_outer_surface_temp,
+            "margin": self._margin,
+            "window_type": self._window_type,
+            "u_value": self._u_value,
+            "zone_type": self._zone_type,
+        }
+    
+    @property
+    def icon(self):
+        """Dynamic icon based on risk level."""
+        if self._attr_native_value == "Critical":
+            return "mdi:water-alert"
+        elif self._attr_native_value == "High":
+            return "mdi:alert-circle"
+        elif self._attr_native_value == "Medium":
+            return "mdi:alert"
+        return "mdi:check-circle"
+    
+    def update(self):
+        """Update condensation risk based on indoor/outdoor temps and outdoor humidity.
+        
+        v2.1.0: Calculates window outer surface temperature and compares to outdoor dew point.
+        """
+        try:
+            zone_data = self._get_zone_data()
+            if not zone_data:
+                self._attr_available = False
+                return
+            
+            # Get room temperature
+            sensor_data = zone_data.get('sensorDataPoints') or {}
+            room_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
+            if room_temp is None:
+                self._attr_available = False
+                return
+            
+            self._room_temp = room_temp
+            
+            # Get config_manager and zone_config_manager
+            config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+            
+            if not config_manager:
+                self._attr_available = False
+                return
+            
+            # Get outdoor temperature
+            outdoor_entity = config_manager.get_outdoor_temp_entity()
+            if not outdoor_entity:
+                self._attr_available = False
+                return
+            
+            self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity)
+            if self._outdoor_temp is None:
+                self._attr_available = False
+                return
+            
+            # Get outdoor humidity (from weather entity)
+            self._outdoor_humidity = self._get_outdoor_humidity(outdoor_entity)
+            if self._outdoor_humidity is None:
+                self._attr_available = False
+                return
+            
+            # Calculate outdoor dew point
+            self._outdoor_dew_point = _calculate_dew_point(self._outdoor_temp, self._outdoor_humidity)
+            
+            # Get window type from per-zone config or global config
+            if zone_config_manager:
+                self._window_type = zone_config_manager.get_zone_value(
+                    self._zone_id, "window_type", "double_pane"
+                )
+                self._u_value = zone_config_manager.get_window_u_value(self._zone_id)
+            else:
+                self._window_type = config_manager.get_mold_risk_window_type()
+                from .const import WINDOW_U_VALUES, DEFAULT_WINDOW_TYPE
+                self._u_value = WINDOW_U_VALUES.get(self._window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+            
+            # Calculate window outer surface temperature
+            # When AC cools the room, the window's outer surface is between room temp and outdoor temp
+            # Using simplified heat transfer: T_outer = T_outdoor - (T_outdoor - T_room) * factor
+            # The factor depends on U-value (higher U = more heat transfer = outer surface closer to room temp)
+            self._window_outer_surface_temp = _calculate_surface_temperature(
+                self._outdoor_temp, self._room_temp, self._u_value
+            )
+            
+            # Calculate margin (difference between window outer surface temp and outdoor dew point)
+            self._margin = round(self._window_outer_surface_temp - self._outdoor_dew_point, 1)
+            
+            # Determine risk level (tighter margins for condensation vs mold)
+            if self._margin < 2:
+                self._attr_native_value = "Critical"
+            elif self._margin < 4:
+                self._attr_native_value = "High"
+            elif self._margin < 6:
+                self._attr_native_value = "Medium"
+            else:
+                self._attr_native_value = "Low"
+            
+            self._attr_available = True
+            
+        except Exception as e:
+            _LOGGER.debug(f"Failed to update condensation risk for zone {self._zone_id}: {e}")
+            self._attr_available = False
+    
+    def _get_outdoor_temperature(self, entity_id: str) -> float | None:
+        """Get outdoor temperature from configured entity."""
+        if not self.hass or not entity_id:
+            return None
+        
+        try:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ('unknown', 'unavailable'):
+                return None
+            
+            if entity_id.startswith('weather.'):
+                temp = state.attributes.get('temperature')
+                if temp is not None:
+                    return float(temp)
+            else:
+                try:
+                    return float(state.state)
+                except (ValueError, TypeError):
+                    return None
+                    
+        except Exception as e:
+            _LOGGER.debug(f"Error getting outdoor temperature from {entity_id}: {e}")
+            return None
+        
+        return None
+    
+    def _get_outdoor_humidity(self, entity_id: str) -> float | None:
+        """Get outdoor humidity from weather entity."""
+        if not self.hass or not entity_id:
+            return None
+        
+        try:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ('unknown', 'unavailable'):
+                return None
+            
+            if entity_id.startswith('weather.'):
+                humidity = state.attributes.get('humidity')
+                if humidity is not None:
+                    return float(humidity)
+            
+            # For non-weather entities, try to find a companion humidity sensor
+            # e.g., sensor.outdoor_temperature -> sensor.outdoor_humidity
+            if entity_id.startswith('sensor.') and 'temperature' in entity_id.lower():
+                humidity_entity = entity_id.lower().replace('temperature', 'humidity')
+                humidity_state = self.hass.states.get(humidity_entity)
+                if humidity_state and humidity_state.state not in ('unknown', 'unavailable'):
+                    try:
+                        return float(humidity_state.state)
+                    except (ValueError, TypeError):
+                        pass
+                    
+        except Exception as e:
+            _LOGGER.debug(f"Error getting outdoor humidity from {entity_id}: {e}")
+            return None
+        
+        # Log warning if no humidity found (helps user understand why sensor is unavailable)
+        _LOGGER.debug(
+            f"Condensation risk: No outdoor humidity found for {entity_id}. "
+            "Use a weather.* entity or ensure sensor.*_humidity exists."
+        )
+        return None
 
 
 class TadoComfortLevelSensor(TadoBaseSensor):
