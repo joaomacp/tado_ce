@@ -23,9 +23,7 @@ Completed:
   - `select.{zone}_overlay_timer_duration`
   - `number.{zone}_min_temp` / `number.{zone}_max_temp`
   - `number.{zone}_temp_offset`
-
-Planned:
-- **Per-Zone Surface Temp Offset** - Optional offset for mold risk calculation ([#90](https://github.com/hiall-fyi/tado_ce/issues/90))
+  - `number.{zone}_surface_temp_offset` (mold risk calibration)
 
 ---
 

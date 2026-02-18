@@ -26,6 +26,7 @@ from .const import (
     ZONE_UFH_BUFFER_MIN, ZONE_UFH_BUFFER_MAX, ZONE_UFH_BUFFER_STEP,
     ZONE_MIN_TEMP_MIN, ZONE_MIN_TEMP_MAX, ZONE_MAX_TEMP_MIN, ZONE_MAX_TEMP_MAX, ZONE_TEMP_STEP,
     TEMP_OFFSET_MIN, TEMP_OFFSET_MAX, TEMP_OFFSET_STEP,
+    SURFACE_TEMP_OFFSET_MIN, SURFACE_TEMP_OFFSET_MAX, SURFACE_TEMP_OFFSET_STEP,
 )
 from .zone_config_manager import ZoneConfigManager
 
@@ -536,6 +537,57 @@ class TadoTempOffsetNumber(NumberEntity):
         self.async_write_ha_state()
 
 
+class TadoSurfaceTempOffsetNumber(NumberEntity):
+    """Number entity for per-zone surface temperature offset.
+    
+    v2.1.0: Allows calibration of mold risk calculation based on
+    laser thermometer measurements of actual cold spots.
+    
+    Negative values = colder surface (more conservative mold risk)
+    Positive values = warmer surface (less conservative mold risk)
+    """
+    
+    _attr_native_min_value = SURFACE_TEMP_OFFSET_MIN
+    _attr_native_max_value = SURFACE_TEMP_OFFSET_MAX
+    _attr_native_step = SURFACE_TEMP_OFFSET_STEP
+    _attr_native_unit_of_measurement = "°C"
+    _attr_mode = NumberMode.BOX
+    _attr_icon = "mdi:thermometer-water"
+    
+    def __init__(
+        self,
+        zone_id: str,
+        zone_name: str,
+        zone_type: str,
+        zone_config_manager: ZoneConfigManager,
+    ):
+        """Initialize surface temp offset number."""
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._zone_type = zone_type
+        self._config_manager = zone_config_manager
+        
+        slug = _slugify(zone_name)
+        self._attr_unique_id = f"tado_ce_zone_{zone_id}_surface_temp_offset"
+        self._attr_name = "Surface Temp Offset"
+        self.entity_id = f"number.{slug}_surface_temp_offset"
+        
+        self._attr_device_info = _get_zone_device_info(zone_id, zone_name, zone_type)
+    
+    @property
+    def native_value(self) -> float:
+        """Return current surface temp offset."""
+        config = self._config_manager.get_zone_config(self._zone_id)
+        return config.get("surface_temp_offset", 0.0)
+    
+    async def async_set_native_value(self, value: float) -> None:
+        """Set surface temp offset."""
+        await self._config_manager.async_set_zone_value(
+            self._zone_id, "surface_temp_offset", float(value)
+        )
+        self.async_write_ha_state()
+
+
 # =============================================================================
 # Platform Setup
 # =============================================================================
@@ -632,6 +684,7 @@ async def async_setup_zone_config_number(
             TadoMinTempNumber(zone_id, zone_name, zone_type, zone_config_manager),
             TadoMaxTempNumber(zone_id, zone_name, zone_type, zone_config_manager),
             TadoTempOffsetNumber(zone_id, zone_name, zone_type, zone_config_manager),
+            TadoSurfaceTempOffsetNumber(zone_id, zone_name, zone_type, zone_config_manager),
         ])
     
     if entities:

@@ -4,6 +4,33 @@
 
 ---
 
+## v2.1.0 (2026-02-18) - Per-Zone Configuration
+
+### Feature Requests & Contributors
+
+**[@ChrisMarriott38](https://github.com/ChrisMarriott38)** - [Issue #91](https://github.com/hiall-fyi/tado_ce/issues/91), [Issue #90](https://github.com/hiall-fyi/tado_ce/issues/90)
+- Requested per-zone Thermal Analytics control for zones that never call for heat
+- Proposed Surface Temperature Offset for mold risk calibration
+- Continued testing and feedback on thermal analytics accuracy
+
+### Bug Reports & Issue Reporters
+
+**[@jakeycrx](https://github.com/jakeycrx)** - [Issue #107](https://github.com/hiall-fyi/tado_ce/issues/107)
+- Follow-up report on custom polling interval still not working below 5 minutes
+- Identified that v2.0.2 fix was incomplete (adaptive interval still clamped)
+
+### What Was Added/Fixed
+
+- ✅ **Issue #91**: Per-Zone Thermal Analytics - multi-select to disable zones that never call for heat
+- ✅ **Issue #90**: Per-Zone Surface Temp Offset - calibrate mold risk with laser thermometer measurements
+- ✅ **Issue #107**: Custom polling interval now truly respects user settings (adaptive no longer overrides)
+- ✅ Per-Zone Overlay Mode - configure overlay termination per zone
+- ✅ Per-Zone Timer Duration - set custom timer duration per zone
+- ✅ Fixed Preheat Time sensors showing `unknown` after HA restart
+- ✅ Fixed NEXT_TIME_BLOCK API error (now correctly maps to TADO_MODE)
+
+---
+
 ## v2.0.2 (2026-02-14) - Presence Mode Select & Configurable Overlay Mode
 
 ### Feature Requests & Contributors

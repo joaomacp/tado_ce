@@ -22,10 +22,15 @@ New configuration entities for each zone (controlled by `zone_configuration_enab
   - Options: `Single Pane`, `Double Pane`, `Triple Pane`, `Passive House`
 - **Zone Overlay Mode** (`select.{zone}_overlay_mode`): How temperature changes behave
   - Options: `Tado Mode` (inherit global), `Next Time Block`, `Timer`, `Manual`
-- **Timer Duration** (`number.{zone}_timer_duration`): Duration when overlay mode = Timer (15-180 min)
+- **Overlay Timer Duration** (`select.{zone}_overlay_timer_duration`): Duration when overlay mode = Timer
+  - Options: `15`, `30`, `45`, `60`, `90`, `120`, `180` minutes
 - **Min Temperature** (`number.{zone}_min_temp`): Minimum allowed temperature (5-25°C)
 - **Max Temperature** (`number.{zone}_max_temp`): Maximum allowed temperature (15-30°C)
 - **Temperature Offset** (`number.{zone}_temp_offset`): Temperature calibration offset (-3.0 to +3.0°C)
+- **Surface Temp Offset** (`number.{zone}_surface_temp_offset`): Mold risk calibration offset (-5.0 to +5.0°C)
+  - Use laser thermometer to measure actual cold spots, then set offset to match
+  - Negative = colder surface (more conservative mold risk)
+  - Positive = warmer surface (less conservative mold risk)
 
 ### Condensation Risk Sensor (AC Zones Only)
 - **Condensation Risk** (`sensor.{zone}_condensation_risk`): Risk of condensation when AC is cooling
@@ -34,17 +39,15 @@ New configuration entities for each zone (controlled by `zone_configuration_enab
   - Controlled by `environment_sensors_enabled` toggle
 
 ### Zone Features Toggles (Options Flow)
-New toggles in Options → Zone Features to control entity visibility:
-- **Zone Diagnostics** (`zone_diagnostics_enabled`): Battery, connection, heating power sensors
-- **Device Controls** (`device_controls_enabled`): Child lock, early start switches
-- **Boost Buttons** (`boost_buttons_enabled`): Boost and Smart Boost buttons
-- **Environment Sensors** (`environment_sensors_enabled`): Mold risk, comfort level, condensation risk
-- **Thermal Analytics** (`thermal_analytics_enabled`): Thermal analytics sensors
-- **Zone Configuration** (`zone_configuration_enabled`): Per-zone config entities
+New toggles in Options → Tado CE Exclusive to control entity visibility:
+- **Thermal Analytics** (`thermal_analytics_enabled`): Thermal analytics sensors (default OFF)
+- **Zone Configuration** (`zone_configuration_enabled`): Per-zone config entities (default OFF)
 
-**Default Behavior:**
-- New installs: All toggles OFF (minimal entities)
-- Upgrades: All toggles ON (preserve existing entities)
+**Core Features (Always ON, not in UI):**
+- Zone Diagnostics: Battery, connection, heating power sensors
+- Device Controls: Child lock, early start switches
+- Boost Buttons: Boost and Smart Boost buttons
+- Environment Sensors: Mold risk, comfort level, condensation risk
 
 ---
 

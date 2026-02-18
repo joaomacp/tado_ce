@@ -271,15 +271,16 @@ CONF_THERMAL_ANALYTICS_ZONES = "thermal_analytics_zones"
 # =============================================================================
 
 # Zone Features Toggles - control which entity groups are visible
-# New installs: all OFF (minimal entities)
-# Upgrades: all ON (preserve existing entities)
+# v2.1.0: Core features are ALWAYS ON (not in UI)
+# Only Thermal Analytics and Zone Configuration are user-configurable
+# These values are for reference only - actual defaults are in config_manager.py
 ZONE_FEATURES_TOGGLES = {
-    "zone_diagnostics_enabled": False,      # Battery, connection, heating power sensors
-    "device_controls_enabled": False,       # Child lock, early start switches
-    "boost_buttons_enabled": False,         # Boost buttons
-    "environment_sensors_enabled": False,   # Mold risk, comfort level, condensation risk
-    "thermal_analytics_enabled": False,     # Thermal analytics sensors
-    "zone_configuration_enabled": False,    # Per-zone config entities
+    "zone_diagnostics_enabled": True,       # Battery, connection, heating power sensors (always ON)
+    "device_controls_enabled": True,        # Child lock, early start switches (always ON)
+    "boost_buttons_enabled": True,          # Boost buttons (always ON)
+    "environment_sensors_enabled": True,    # Mold risk, comfort level, condensation risk (always ON)
+    "thermal_analytics_enabled": False,     # Thermal analytics sensors (user toggle, default OFF)
+    "zone_configuration_enabled": False,    # Per-zone config entities (user toggle, default OFF)
 }
 
 # Overlay mode values (UPPERCASE - matches Tado API)
@@ -318,7 +319,13 @@ DEFAULT_ZONE_CONFIG = {
     "min_temp": 5.0,                # 5-25°C (Heating + AC)
     "max_temp": 25.0,               # 15-30°C (Heating + AC)
     "temp_offset": 0.0,             # -3.0 to +3.0°C (Heating + AC)
+    "surface_temp_offset": 0.0,     # v2.1.0: -5.0 to +5.0°C offset for mold risk calculation
 }
+
+# Surface temperature offset limits (for mold risk calibration)
+SURFACE_TEMP_OFFSET_MIN = -5.0
+SURFACE_TEMP_OFFSET_MAX = 5.0
+SURFACE_TEMP_OFFSET_STEP = 0.5
 
 # Window type to U-value mapping (for migration from v2.0.x)
 WINDOW_TYPE_U_VALUES = {

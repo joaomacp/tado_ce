@@ -2650,6 +2650,7 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         self._temperature_source: str = "unknown"  # v1.11.0: Track which tier is active
         self._outdoor_temp: float | None = None  # v1.11.0: For surface temp calculation
         self._surface_temp: float | None = None  # v1.11.0: Calculated surface temp
+        self._surface_temp_offset: float = 0.0  # v2.1.0: Calibration offset
     
     @property
     def extra_state_attributes(self):
@@ -2663,6 +2664,7 @@ class TadoMoldRiskSensor(TadoBaseSensor):
             "temperature_source": self._temperature_source,  # v1.11.0
             "outdoor_temperature": self._outdoor_temp,  # v1.11.0
             "surface_temperature": self._surface_temp,  # v1.11.0
+            "surface_temp_offset": self._surface_temp_offset,  # v2.1.0: Calibration offset
             "zone_type": self._zone_type,
         }
     
@@ -2737,6 +2739,8 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         - Tier 1: Surface temperature estimation (if outdoor temp + window type available)
         - Tier 2: Room average temperature (fallback)
         
+        v2.1.0: Added per-zone window type and surface_temp_offset support.
+        
         Args:
             room_temp: Room average temperature from Tado sensor
             
@@ -2748,8 +2752,11 @@ class TadoMoldRiskSensor(TadoBaseSensor):
         try:
             # Get config_manager from hass.data (real-time config access)
             config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+            
             if not config_manager:
                 self._temperature_source = "room_average"
+                self._surface_temp_offset = 0.0
                 return room_temp
             
             # Try Tier 1: Surface temperature estimation
@@ -2760,18 +2767,32 @@ class TadoMoldRiskSensor(TadoBaseSensor):
                 self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity, config_manager.get_use_feels_like())
                 
                 if self._outdoor_temp is not None:
-                    # Get window type and U-value
-                    window_type = config_manager.get_mold_risk_window_type()
-                    u_value = WINDOW_U_VALUES.get(window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+                    # v2.1.0: Get per-zone window type, fallback to global
+                    if zone_config_manager:
+                        u_value = zone_config_manager.get_window_u_value(self._zone_id)
+                        surface_offset = zone_config_manager.get_surface_temp_offset(self._zone_id)
+                    else:
+                        window_type = config_manager.get_mold_risk_window_type()
+                        u_value = WINDOW_U_VALUES.get(window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+                        surface_offset = 0.0
+                    
+                    # Store offset for attributes
+                    self._surface_temp_offset = surface_offset
                     
                     # Calculate surface temperature
                     self._surface_temp = _calculate_surface_temperature(room_temp, self._outdoor_temp, u_value)
-                    self._temperature_source = "surface_estimation"
+                    
+                    # v2.1.0: Apply surface temperature offset (for calibration)
+                    if surface_offset != 0.0:
+                        self._surface_temp = round(self._surface_temp + surface_offset, 1)
+                        self._temperature_source = "surface_estimation_calibrated"
+                    else:
+                        self._temperature_source = "surface_estimation"
                     
                     _LOGGER.debug(
                         f"Mold Risk (Zone {self._zone_id}): Using surface estimation - "
                         f"Room: {room_temp}°C, Outdoor: {self._outdoor_temp}°C, "
-                        f"Window: {window_type} (U={u_value}), Surface: {self._surface_temp}°C"
+                        f"U={u_value}, Offset={surface_offset}°C, Surface: {self._surface_temp}°C"
                     )
                     
                     return self._surface_temp
@@ -2780,6 +2801,7 @@ class TadoMoldRiskSensor(TadoBaseSensor):
             self._temperature_source = "room_average"
             self._outdoor_temp = None
             self._surface_temp = None
+            self._surface_temp_offset = 0.0
             
             _LOGGER.debug(
                 f"Mold Risk (Zone {self._zone_id}): Using room average - "
@@ -2793,6 +2815,7 @@ class TadoMoldRiskSensor(TadoBaseSensor):
             self._temperature_source = "room_average"
             self._outdoor_temp = None
             self._surface_temp = None
+            self._surface_temp_offset = 0.0
             return room_temp
     
     def _get_outdoor_temperature(self, entity_id: str, use_feels_like: bool = False) -> float | None:
@@ -2975,12 +2998,16 @@ class TadoMoldRiskPercentageSensor(TadoBaseSensor):
         2-tier strategy:
         - Tier 1: Surface temperature estimation (if outdoor temp + window type available)
         - Tier 2: Room average temperature (fallback)
+        
+        v2.1.0: Added per-zone window type and surface_temp_offset support.
         """
         from .const import WINDOW_U_VALUES, DEFAULT_WINDOW_TYPE
         
         try:
             # Get config_manager from hass.data (real-time config access)
             config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
+            zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+            
             if not config_manager:
                 self._temperature_source = "room_average"
                 return room_temp
@@ -2991,10 +3018,24 @@ class TadoMoldRiskPercentageSensor(TadoBaseSensor):
                 self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity, config_manager.get_use_feels_like())
                 
                 if self._outdoor_temp is not None:
-                    window_type = config_manager.get_mold_risk_window_type()
-                    u_value = WINDOW_U_VALUES.get(window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+                    # v2.1.0: Get per-zone window type, fallback to global
+                    if zone_config_manager:
+                        u_value = zone_config_manager.get_window_u_value(self._zone_id)
+                        surface_offset = zone_config_manager.get_surface_temp_offset(self._zone_id)
+                    else:
+                        window_type = config_manager.get_mold_risk_window_type()
+                        u_value = WINDOW_U_VALUES.get(window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
+                        surface_offset = 0.0
+                    
                     self._surface_temp = _calculate_surface_temperature(room_temp, self._outdoor_temp, u_value)
-                    self._temperature_source = "surface_estimation"
+                    
+                    # v2.1.0: Apply surface temperature offset (for calibration)
+                    if surface_offset != 0.0:
+                        self._surface_temp = round(self._surface_temp + surface_offset, 1)
+                        self._temperature_source = "surface_estimation_calibrated"
+                    else:
+                        self._temperature_source = "surface_estimation"
+                    
                     return self._surface_temp
             
             self._temperature_source = "room_average"

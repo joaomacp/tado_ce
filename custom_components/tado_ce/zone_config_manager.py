@@ -156,6 +156,20 @@ class ZoneConfigManager:
         window_type = self.get_zone_value(zone_id, "window_type", "double_pane")
         return WINDOW_TYPE_U_VALUES.get(window_type, 2.7)
     
+    def get_surface_temp_offset(self, zone_id: str) -> float:
+        """Get surface temperature offset for mold risk calibration.
+        
+        v2.1.0: Allows users to calibrate mold risk calculation based on
+        laser thermometer measurements of actual cold spots.
+        
+        Args:
+            zone_id: Zone ID as string
+            
+        Returns:
+            Offset in °C (negative = colder surface, positive = warmer)
+        """
+        return self.get_zone_value(zone_id, "surface_temp_offset", 0.0)
+    
     def get_effective_target_temp(self, zone_id: str, target_temp: float) -> float:
         """Get effective target temperature with offset applied.
         

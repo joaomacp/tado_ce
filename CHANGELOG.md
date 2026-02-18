@@ -8,11 +8,16 @@ All notable changes to Tado CE will be documented in this file.
 
 ### Features
 - **Per-Zone Overlay Mode** - Configure overlay termination per zone (Tado Mode, Timer, Manual)
-- **Per-Zone Timer Duration** - Set custom timer duration per zone (1-1440 minutes)
+- **Per-Zone Timer Duration** - Set custom timer duration per zone (15-180 minutes via select entity)
 - **Per-Zone Thermal Analytics** - Select which zones have Thermal Analytics sensors ([#91](https://github.com/hiall-fyi/tado_ce/issues/91))
   - Zones that never call for heat (passive heating) always show `unavailable`
   - Now users can deselect these zones in Options to keep UI clean
   - Multi-select in Tado CE Exclusive section, defaults to all zones with heatingPower
+- **Per-Zone Surface Temp Offset** - Calibrate mold risk calculation per zone ([#90](https://github.com/hiall-fyi/tado_ce/issues/90))
+  - New `number.{zone}_surface_temp_offset` entity (-5°C to +5°C)
+  - Use laser thermometer to measure actual cold spots, then set offset to match
+  - Negative offset = colder surface (more conservative mold risk)
+  - Shows `surface_temp_offset` attribute in mold risk sensors
 
 ### Bug Fixes
 - **Fixed Preheat Time sensors showing `unknown` after HA restart**
