@@ -289,7 +289,18 @@ Global sensors for the Tado CE Hub device.
 | `sensor.tado_ce_api_usage` | Sensor | API calls used (e.g. "142/5000") |
 | `sensor.tado_ce_api_reset` | Sensor | Time until rate limit resets (e.g. "5h 30m") |
 | `sensor.tado_ce_api_limit` | Diagnostic | Your daily API call limit |
-| `sensor.tado_ce_api_status` | Diagnostic | API status (ok/warning/rate_limited) |
+| `sensor.tado_ce_api_status` | Diagnostic | API status (ok/warning/rate_limited/error) |
+
+#### API Status States
+
+| State | Meaning | Trigger |
+|-------|---------|---------|
+| `ok` | All good | API quota usage < 80% |
+| `warning` | High usage | API quota usage > 80% |
+| `rate_limited` | Quota exhausted | API quota = 0 remaining |
+| `error` | Connection issue | Failed to read rate limit data |
+| `unavailable` | Sensor not ready | During HA restart/reload |
+
 | `sensor.tado_ce_token_status` | Diagnostic | Token status (valid/expired) |
 | `sensor.tado_ce_zones_count` | Diagnostic | Number of zones configured |
 | `sensor.tado_ce_last_sync` | Diagnostic | Last successful sync timestamp |

@@ -47,6 +47,17 @@ Tado enforces API rate limits (100-20,000 calls/day depending on your plan). The
 | `sensor.tado_ce_polling_interval` | minutes | Current polling interval (v2.0.0) |
 | `sensor.tado_ce_call_history` | count | API call history with statistics (v2.0.0) |
 | `sensor.tado_ce_api_call_breakdown` | text | API call breakdown by endpoint type (v2.0.0) |
+| `sensor.tado_ce_api_status` | text | API connection status |
+
+### API Status States
+
+| State | Meaning | When |
+|-------|---------|------|
+| `ok` | All good | API quota usage < 80% |
+| `warning` | High usage | API quota usage > 80% |
+| `rate_limited` | Quota exhausted | API quota = 0 remaining |
+| `error` | Connection issue | Failed to read rate limit data |
+| `unavailable` | Sensor not ready | During HA restart/reload |
 
 ### Configuration
 
