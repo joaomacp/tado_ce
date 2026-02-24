@@ -2470,11 +2470,15 @@ The Home Insights sensor (`sensor.tado_ce_home_insights`) aggregates insights fr
 | Battery Low | Critical/Low | Device battery LOW or CRITICAL | Zone device info |
 | Device Offline | High | Device connection lost | Zone device info |
 | Preheat Timing | Medium | Preheat time exceeds schedule gap | `sensor.{zone}_preheat_time` |
+| Schedule Deviation | Medium | Actual temp consistently deviates from schedule target | Zone temperature + schedule data |
 | Heating Anomaly | High | Power ≥80% but temp change <0.5°C for 60+ min | `sensor.{zone}_heating_power` |
+| Condensation Risk | Medium/High/Critical | AC zone condensation risk detected | `sensor.{zone}_condensation_risk` (AC zones only) |
 | Cross-Zone Mold | High | 3+ zones with Medium+ mold risk | All zone mold data |
 | Cross-Zone Windows | High | 2+ zones with window predicted open | All zone window sensors |
 | API Quota Planning | Medium/High | Projected exhaustion <6h before reset | API usage rate + remaining |
 | Weather Impact | Medium | Outdoor temp >5°C below 7-day average | Weather data |
+
+> **Zone vs Home insights:** Mold Risk, Comfort Level, Window Predicted, Battery Low, Device Offline, Preheat Timing, Schedule Deviation, Heating Anomaly, and Condensation Risk are **zone-level** insights (appear in `sensor.{zone}_insights`). Cross-Zone Mold, Cross-Zone Windows, API Quota Planning, and Weather Impact are **home-level** insights (appear only in `sensor.tado_ce_home_insights`).
 
 ### Recommendation Attributes
 
@@ -2512,7 +2516,7 @@ Each HEATING and AIR_CONDITIONING zone gets its own insights sensor: `sensor.{zo
   - `insight_types` - List of active insight type names
   - `recommendations` - List of all recommendation texts
 - **Dynamic icon**: Changes based on highest priority (alert-octagon for critical, alert-circle for high, alert for medium, information for low)
-- **Insight types**: mold risk, comfort, window predicted, battery, connection, preheat timing, heating anomaly
+- **Insight types**: mold risk, comfort, window predicted, battery, connection, preheat timing, schedule deviation, heating anomaly
 
 Unlike the hub-level Home Insights sensor, zone insights focus only on the specific zone and do not include cross-zone or API-level insights.
 

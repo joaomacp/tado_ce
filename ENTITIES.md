@@ -40,7 +40,7 @@ Per-zone insights sensor for each HEATING and AIR_CONDITIONING zone:
 - **Zone Insights** (`sensor.{zone}_insights`): Per-zone actionable insights summary
   - **State**: Number of active insights for this zone (integer)
   - **Attributes**: `top_priority`, `top_recommendation`, `insight_types`, `recommendations`
-  - Insight types: mold risk, comfort, window predicted, battery, connection, preheat timing, heating anomaly
+  - Insight types: mold risk, comfort, window predicted, battery, connection, preheat timing, schedule deviation, heating anomaly
   - Dynamic icon changes based on highest priority insight
   - Created for all HEATING and AIR_CONDITIONING zones
 
@@ -81,6 +81,11 @@ Enhanced insight capabilities in `sensor.tado_ce_home_insights`:
 #### Preheat Timing Insight (US-14)
 - Alerts when preheat time exceeds schedule gap
 - Reads from `sensor.{zone}_preheat_time` and `sensor.{zone}_next_schedule_time`
+
+#### Schedule Deviation Insight (US-15)
+- Detects when actual temperature consistently deviates from schedule target
+- Triggers when deviation exceeds threshold over multiple readings
+- Provides guidance on schedule adjustments
 
 #### Heating Power Anomaly Detection (US-16)
 - Detects when heating power ≥80% but temperature change <0.5°C for 60+ minutes
