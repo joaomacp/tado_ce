@@ -18,7 +18,8 @@ import homeassistant.helpers.config_validation as cv
 from .const import (
     DOMAIN, DATA_DIR, CONFIG_FILE, RATELIMIT_FILE,
     MIN_POLLING_INTERVAL, MAX_POLLING_INTERVAL, POLLING_SAFETY_BUFFER,
-    QUOTA_RESERVE_CALLS, QUOTA_RESERVE_PERCENT, WINDOW_TYPE_U_VALUES
+    QUOTA_RESERVE_CALLS, QUOTA_RESERVE_PERCENT, WINDOW_TYPE_U_VALUES,
+    LOW_QUOTA_THRESHOLD,
 )
 from .config_manager import ConfigurationManager
 from .zone_config_manager import ZoneConfigManager
@@ -203,6 +204,73 @@ def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: Configura
         
         return interval_minutes
     
+    # v2.2.3: Smart Day/Night for Low Quota (#144)
+    # For low-quota users (remaining <= 100), use a different strategy:
+    # - Night: Fixed MAX_POLLING_INTERVAL (120 min) to conserve quota
+    # - Day: Use remaining quota after reserving Night calls
+    # This ensures 24h coverage regardless of when reset occurs
+    if remaining <= LOW_QUOTA_THRESHOLD:
+        # Calculate Night duration
+        if night_start > day_start:
+            night_duration = 24 - night_start + day_start
+        else:
+            night_duration = day_start - night_start
+        
+        # Calculate Day duration
+        day_duration = 24 - night_duration
+        
+        # Night calls at MAX_POLLING_INTERVAL (120 min)
+        night_calls = (night_duration * 60) / MAX_POLLING_INTERVAL
+        
+        # Apply safety buffer and quota reserve to effective_remaining
+        # This preserves the existing quota protection behavior (Requirement 3.5)
+        usable_remaining = effective_remaining * POLLING_SAFETY_BUFFER - QUOTA_RESERVE_CALLS
+        
+        # Day calls = usable_remaining - night_calls
+        day_calls = usable_remaining - night_calls
+        
+        # Edge case: if usable_remaining <= night_calls, use MAX_POLLING_INTERVAL for both
+        if day_calls <= 0:
+            _LOGGER.debug(
+                f"Tado CE Adaptive Polling (Low Quota - Edge Case):\n"
+                f"  Remaining: {remaining} calls (usable: {usable_remaining:.1f}) <= Night calls needed ({night_calls:.1f})\n"
+                f"  Using MAX_POLLING_INTERVAL ({MAX_POLLING_INTERVAL} min) for all periods\n"
+                f"  Test Mode: {test_mode}"
+            )
+            if not is_day:
+                return None  # Night period - use default/custom night interval
+            return MAX_POLLING_INTERVAL
+        
+        # Calculate Day interval
+        day_interval = (day_duration * 60) / day_calls
+        
+        if not is_day:
+            # Night period - return None to use default/custom night interval
+            _LOGGER.debug(
+                f"Tado CE Adaptive Polling (Low Quota - Night):\n"
+                f"  Period: Night (until {day_start:02d}:00)\n"
+                f"  Remaining: {remaining} calls (effective: {effective_remaining:.0f}, usable: {usable_remaining:.1f})\n"
+                f"  Night calls reserved: {night_calls:.1f} at {MAX_POLLING_INTERVAL} min\n"
+                f"  Day calls available: {day_calls:.1f} at {day_interval:.1f} min\n"
+                f"  Returning None (use default/custom night interval)\n"
+                f"  Test Mode: {test_mode}"
+            )
+            return None
+        
+        # Day period - use calculated day_interval
+        day_interval = int(max(MIN_POLLING_INTERVAL, min(MAX_POLLING_INTERVAL, day_interval)))
+        
+        _LOGGER.debug(
+            f"Tado CE Adaptive Polling (Low Quota - Day):\n"
+            f"  Period: Day (Smart Day/Night for Low Quota)\n"
+            f"  Remaining: {remaining} calls (effective: {effective_remaining:.0f})\n"
+            f"  Night duration: {night_duration}h → {night_calls:.1f} calls at {MAX_POLLING_INTERVAL} min\n"
+            f"  Day duration: {day_duration}h → {day_calls:.1f} calls at {day_interval} min\n"
+            f"  Reset in: {reset_hours:.1f}h | Test Mode: {test_mode}"
+        )
+        
+        return day_interval
+    
     # Normal Day/Night Mode calculation
     # Calculate hours until Night Start (for Day period)
     if is_day:
@@ -247,7 +315,10 @@ def _calculate_adaptive_interval(ratelimit_data: dict, config_manager: Configura
     else:
         # Night Start is before Reset - need to reserve quota for Night
         effective_hours = hours_until_night
-        night_calls_needed = (night_duration * 60) / MAX_POLLING_INTERVAL
+        # v2.2.3: Use custom night interval if set, otherwise MAX_POLLING_INTERVAL (#141)
+        custom_night = config_manager.get_custom_night_interval()
+        night_interval_for_calc = custom_night if custom_night is not None else MAX_POLLING_INTERVAL
+        night_calls_needed = (night_duration * 60) / night_interval_for_calc
         time_boundary = f"Night Start ({hours_until_night}h)"
     
     day_quota = max(0, usable_quota - night_calls_needed)
@@ -2555,6 +2626,45 @@ async def _async_register_services(hass: HomeAssistant):
         _LOGGER.debug("Tado CE services already registered, skipping")
         return
     
+    def expand_group_entity_ids(entity_ids: list, allowed_domains: list = None) -> list:
+        """Expand group entity IDs to individual entity IDs.
+        
+        v2.2.3: Added to support climate groups in custom services (#139).
+        
+        Args:
+            entity_ids: List of entity IDs (may include group.* entities)
+            allowed_domains: Optional list of domains to filter (e.g., ["climate", "water_heater"])
+        
+        Returns:
+            List of expanded entity IDs with groups replaced by their members
+        """
+        expanded_ids = []
+        for entity_id in entity_ids:
+            if entity_id.startswith("group."):
+                # Get group members from state attributes
+                group_state = hass.states.get(entity_id)
+                if group_state and "entity_id" in group_state.attributes:
+                    group_members = group_state.attributes["entity_id"]
+                    # Filter by allowed domains if specified
+                    if allowed_domains:
+                        group_members = [
+                            eid for eid in group_members 
+                            if eid.split(".")[0] in allowed_domains
+                        ]
+                    expanded_ids.extend(group_members)
+                    _LOGGER.debug(f"Expanded group {entity_id} to {len(group_members)} entities")
+                else:
+                    _LOGGER.warning(f"Group {entity_id} not found or has no members")
+            else:
+                # Filter by allowed domains if specified
+                if allowed_domains:
+                    domain = entity_id.split(".")[0]
+                    if domain not in allowed_domains:
+                        _LOGGER.debug(f"Skipping {entity_id} - not in allowed domains {allowed_domains}")
+                        continue
+                expanded_ids.append(entity_id)
+        return expanded_ids
+    
     async def handle_set_climate_timer(call: ServiceCall):
         """Handle set_climate_timer service call.
         
@@ -2634,6 +2744,9 @@ async def _async_register_services(hass: HomeAssistant):
             error_msg = "temperature is required for set_climate_timer service"
             _LOGGER.error(error_msg)
             raise vol.Invalid(error_msg)
+        
+        # v2.2.3: Expand groups to individual entity IDs (#139)
+        entity_ids = expand_group_entity_ids(entity_ids, allowed_domains=["climate"])
         
         for entity_id in entity_ids:
             entity = hass.states.get(entity_id)
@@ -2726,6 +2839,9 @@ async def _async_register_services(hass: HomeAssistant):
                 _LOGGER.error(error_msg)
                 raise vol.Invalid(error_msg)
         
+        # v2.2.3: Expand groups to individual entity IDs (#139)
+        entity_ids = expand_group_entity_ids(entity_ids, allowed_domains=["water_heater"])
+        
         # Call water heater entities
         for entity_id in entity_ids:
             water_heater_component = hass.data.get("entity_components", {}).get("water_heater")
@@ -2745,6 +2861,7 @@ async def _async_register_services(hass: HomeAssistant):
         """Handle resume_schedule service call.
         
         v2.0.1: Added bootstrap reserve check - blocks action when quota critically low.
+        v2.2.3: Added group expansion support (#139).
         """
         from .async_api import get_async_client
         
@@ -2760,6 +2877,9 @@ async def _async_register_services(hass: HomeAssistant):
         entity_ids = call.data.get("entity_id", [])
         if isinstance(entity_ids, str):
             entity_ids = [entity_ids]
+        
+        # v2.2.3: Expand groups to individual entity IDs (#139)
+        entity_ids = expand_group_entity_ids(entity_ids, allowed_domains=["climate", "water_heater"])
         
         client = get_async_client(hass)
         
@@ -2842,6 +2962,7 @@ async def _async_register_services(hass: HomeAssistant):
             _LOGGER.error(f"Failed to add meter reading: {reading}")
     
     # Register services
+    # v2.2.3: Use cv.entity_ids + handler expansion to support climate groups (#139)
     hass.services.async_register(
         DOMAIN, SERVICE_SET_CLIMATE_TIMER, handle_set_climate_timer,
         schema=vol.Schema({
@@ -2861,6 +2982,7 @@ async def _async_register_services(hass: HomeAssistant):
         })
     )
     
+    # v2.2.3: Use cv.entity_ids + handler expansion to support groups (#139)
     hass.services.async_register(
         DOMAIN, SERVICE_RESUME_SCHEDULE, handle_resume_schedule,
         schema=vol.Schema({

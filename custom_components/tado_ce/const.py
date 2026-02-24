@@ -239,6 +239,11 @@ QUOTA_RESERVE_ENABLED_DEFAULT = True  # v2.0.1: Default ON, advanced users can d
 # Even manual actions are blocked when remaining <= QUOTA_BOOTSTRAP_CALLS
 QUOTA_BOOTSTRAP_CALLS = 3       # Hard limit - never use these calls
 
+# v2.2.3: Low Quota Threshold for Smart Day/Night (#144)
+# Users with remaining <= this threshold get special handling to ensure 24h coverage
+# Smart Day/Night: Night uses MAX_POLLING_INTERVAL, Day uses remaining quota
+LOW_QUOTA_THRESHOLD = 100       # Trigger Smart Day/Night for low-quota users
+
 # v1.11.0: Mold Risk Enhancement - Window U-values (W/m²K)
 # Standard thermal transmittance values for different window types
 WINDOW_U_VALUES = {

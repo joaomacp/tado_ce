@@ -2,6 +2,33 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [2.2.3] - Unreleased
+
+**Smart Day/Night Polling, AC Fan Fix & Climate Group Support**
+
+### Bug Fixes
+- **Fixed Adaptive Polling for Low-Quota Users** ([#144](https://github.com/hiall-fyi/tado_ce/issues/144) - @mkruiver)
+  - Users with ≤100 remaining API calls now get Smart Day/Night algorithm instead of uniform distribution
+  - Night period (00:00-06:00): Fixed 120-minute intervals to conserve quota
+  - Day period (06:00-00:00): Remaining quota distributed after reserving night calls
+  - Prevents "stuck at 120 min" issue while maintaining quota protection
+
+- **Fixed Night Calls Calculation Using Wrong Interval** ([#141](https://github.com/hiall-fyi/tado_ce/issues/141) - @Xavinooo)
+  - Day period quota reservation was using hardcoded 120 min instead of custom night interval
+  - Now correctly uses `custom_night_interval` if set, otherwise `MAX_POLLING_INTERVAL`
+
+- **Fixed AC 'High' Fan Speed Reverting** ([#142](https://github.com/hiall-fyi/tado_ce/issues/142) - @BirbByte)
+  - Fan level validation now checks against AC capabilities (same pattern as swing validation in v2.2.0)
+  - Unsupported fan levels fall back to AUTO or first supported value instead of reverting
+
+### Improvements
+- **Climate Group Support for Custom Services** ([#139](https://github.com/hiall-fyi/tado_ce/discussions/139) - @merlinpimpim)
+  - `tado_ce.set_climate_timer`, `tado_ce.set_water_heater_timer`, and `tado_ce.resume_schedule` now support climate groups
+  - Groups defined in `configuration.yaml` are automatically expanded to individual entities
+  - Example: `group.tado_group` containing multiple climate entities can now be targeted directly
+
+---
+
 ## [2.2.2] - 2026-02-23
 
 **Options Flow Validation & Persistence Fixes**

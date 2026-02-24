@@ -4,6 +4,44 @@
 
 ---
 
+## v2.2.3 (2026-02-24) - Smart Day/Night Polling & Bug Fixes
+
+### Bug Reports & Issue Reporters
+
+**[@mkruiver](https://github.com/mkruiver)** - [Issue #144](https://github.com/hiall-fyi/tado_ce/issues/144)
+- Reported adaptive polling too aggressive for low-quota users (100 calls/day)
+- Identified that Day period was consuming quota needed for Night period
+- Proposed Smart Day/Night algorithm for sustainable 24h coverage
+
+**[@Xavinooo](https://github.com/Xavinooo)** - [Issue #141](https://github.com/hiall-fyi/tado_ce/issues/141)
+- Reported Night calls calculation using wrong interval
+- Identified that hardcoded MAX_POLLING_INTERVAL (120 min) was used instead of custom night interval
+- Detailed reproduction steps showing quota miscalculation
+
+**[@BirbByte](https://github.com/BirbByte)** - [Issue #142](https://github.com/hiall-fyi/tado_ce/issues/142)
+- Reported AC 'High' fan speed reverting to 'Auto' after a few seconds
+- Identified that LEVEL5 fan level was not in AC capabilities for some units
+- Provided detailed logs showing the validation failure
+
+**[@merlinpimpim](https://github.com/merlinpimpim)** - [Discussion #139](https://github.com/hiall-fyi/tado_ce/discussions/139)
+- Requested climate group support for custom services
+- Proposed using `group.tado_zones` with `set_climate_timer` service
+- Detailed use case for controlling multiple zones with single service call
+
+### What Was Added/Fixed
+
+- ✅ **Issue #144**: Smart Day/Night algorithm for low-quota users (≤100 calls)
+  - Night period: Fixed MAX_POLLING_INTERVAL (120 min) to conserve quota
+  - Day period: Uses remaining quota after reserving Night calls
+- ✅ **Issue #141**: Night calls calculation now uses custom night interval if set
+- ✅ **Issue #142**: AC fan level validation now checks against AC capabilities
+  - Unsupported fan levels fall back to AUTO or first supported value
+- ✅ **Discussion #139**: Climate group support for custom services
+  - `set_climate_timer`, `set_water_heater_timer`, `resume_schedule` now accept groups
+
+---
+
+
 ## v2.2.2 (2026-02-23) - Options Flow Validation & Persistence Fixes
 
 ### Bug Reports & Issue Reporters

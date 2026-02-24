@@ -1427,6 +1427,49 @@ data:
   offset: -0.5  # Device reads 0.5°C too high
 ```
 
+#### 5. Climate Group Support (v2.2.3+)
+
+**What it does:** Target climate groups with Tado CE custom services.
+
+**How it works:**
+- Groups defined in `configuration.yaml` are automatically expanded
+- Domain filtering ensures only relevant entities are processed
+- Non-matching entities in mixed groups are silently skipped
+
+**Supported Services:**
+- `tado_ce.set_climate_timer` - filters to `climate.*` entities
+- `tado_ce.set_water_heater_timer` - filters to `water_heater.*` entities
+- `tado_ce.resume_schedule` - filters to `climate.*` and `water_heater.*` entities
+
+**Setup:**
+```yaml
+# Define group in configuration.yaml
+group:
+  tado_group:
+    name: Tado TVR
+    entities:
+      - climate.bedroom
+      - climate.living_room
+      - climate.dining_room
+```
+
+**Usage:**
+```yaml
+# Set timer for all zones in group
+service: tado_ce.set_climate_timer
+data:
+  entity_id: group.tado_group
+  temperature: 22
+  time_period: "01:30:00"
+
+# Resume schedule for all zones in group
+service: tado_ce.resume_schedule
+data:
+  entity_id: group.tado_group
+```
+
+**Note:** Standard HA services like `climate.set_temperature` already support groups natively. This feature brings the same convenience to Tado CE's custom services.
+
 ### Configuration
 
 | Option | Default | Description |

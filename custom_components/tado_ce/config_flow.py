@@ -508,15 +508,23 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
         custom_day_interval = options.get('custom_day_interval')
         custom_night_interval = options.get('custom_night_interval')
         
-        # v2.2.2: Build custom interval schema dynamically (#134)
-        # NumberSelector doesn't accept None as default, so we only set default when value exists
+        # v2.2.3: Fix persistence bug (#134) - use suggested_value instead of default
+        # When using 'default', voluptuous auto-fills missing keys with the default value
+        # This prevents users from clearing the field (clearing = key not sent = default used)
+        # Using 'suggested_value' pre-fills the field but allows clearing to persist None
         if custom_day_interval is not None:
-            custom_day_schema = vol.Optional('custom_day_interval', default=custom_day_interval)
+            custom_day_schema = vol.Optional(
+                'custom_day_interval',
+                description={"suggested_value": custom_day_interval}
+            )
         else:
             custom_day_schema = vol.Optional('custom_day_interval')
         
         if custom_night_interval is not None:
-            custom_night_schema = vol.Optional('custom_night_interval', default=custom_night_interval)
+            custom_night_schema = vol.Optional(
+                'custom_night_interval',
+                description={"suggested_value": custom_night_interval}
+            )
         else:
             custom_night_schema = vol.Optional('custom_night_interval')
 

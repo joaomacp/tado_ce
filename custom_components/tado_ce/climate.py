@@ -1872,14 +1872,33 @@ class TadoACClimate(ClimateEntity):
             else:
                 setting["temperature"] = {"celsius": 24}
         
-        # Fan level - only send if mode supports it (DRY mode doesn't have fanLevel)
+        # Fan level - only send if mode supports it AND value is in supported list
+        # v2.2.3 Fix: Validate fan level against capabilities (#142 - @BirbByte)
+        # Similar to swing validation in v2.2.0 (#128)
         if 'fanLevel' in mode_caps:
+            supported_fan_levels = mode_caps.get('fanLevel') or []
             if fan_level:
-                setting["fanLevel"] = fan_level
+                # Explicit value passed - validate it
+                if fan_level in supported_fan_levels:
+                    setting["fanLevel"] = fan_level
+                elif supported_fan_levels:
+                    # Fallback: use AUTO if supported, else first supported value
+                    fallback = "AUTO" if "AUTO" in supported_fan_levels else supported_fan_levels[0]
+                    setting["fanLevel"] = fallback
+                    _LOGGER.warning(f"AC {self._zone_name}: fan level {fan_level} not supported, using {fallback}")
             elif self._attr_fan_mode:
-                setting["fanLevel"] = HA_TO_TADO_FAN.get(self._attr_fan_mode, 'AUTO')
+                tado_fan = HA_TO_TADO_FAN.get(self._attr_fan_mode, 'AUTO')
+                if tado_fan in supported_fan_levels:
+                    setting["fanLevel"] = tado_fan
+                elif "AUTO" in supported_fan_levels:
+                    setting["fanLevel"] = "AUTO"
+                elif supported_fan_levels:
+                    setting["fanLevel"] = supported_fan_levels[0]
             else:
-                setting["fanLevel"] = "AUTO"
+                if "AUTO" in supported_fan_levels:
+                    setting["fanLevel"] = "AUTO"
+                elif supported_fan_levels:
+                    setting["fanLevel"] = supported_fan_levels[0]
         
         # Swing - only send if mode supports it AND value is in supported list
         # v2.2.0 Fix: Validate swing values against capabilities (#128 - @BirbByte)

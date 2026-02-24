@@ -10,6 +10,7 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 **API Management:**
 - **Call Priority System** - Configurable weighting for different call types (e.g., zoneStates every 10 min, weather every 30 min). Requires significant coordinator architecture changes. Low priority - current adaptive polling handles most use cases.
+- **Event-Driven Full Sync** ([#141](https://github.com/hiall-fyi/tado_ce/issues/141) - @Xavinooo) - Remove 6-hour periodic full sync, make it event-driven (only on HA restart/reload). Zone info, offsets, and AC capabilities rarely change. Saves API calls and simplifies quota planning.
 
 **Environment Sensors** ([#64](https://github.com/hiall-fyi/tado_ce/issues/64)):
 - **Indoor Air Quality (IAQ)** - Air quality score per zone (requires additional sensors)
@@ -33,9 +34,13 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 - **Benefit**: Allows automation control (e.g., "disable quota reserve when API remaining > 50") and faster toggling without entering Config Options
 - **Note**: Waiting for community feedback on use cases before implementation
 
-**Per-Zone External Sensor Override** ([#106](https://github.com/hiall-fyi/tado_ce/issues/106)):
+**Per-Zone External Sensor Override** ([#106](https://github.com/hiall-fyi/tado_ce/issues/106), [#143](https://github.com/hiall-fyi/tado_ce/issues/143) - @BirbByte):
 - **Per-Zone Temperature Sensor Override** - Allow selecting any HA temperature sensor (HomeKit, Zigbee, etc.) per zone for faster updates
 - **Note**: v2.2.0 added Window Predicted sensor using local Tado temperature analysis; external sensor override for even faster detection still under consideration
+
+**Climate Group Support** ([#139](https://github.com/hiall-fyi/tado_ce/discussions/139) - @merlinpimpim):
+- ~~**Group Expansion for Custom Services**~~ - ✅ Done in v2.2.3: `tado_ce.set_climate_timer`, `tado_ce.set_water_heater_timer`, and `tado_ce.resume_schedule` now support climate groups defined in configuration.yaml
+- Groups are automatically expanded to individual entities with domain filtering
 
 **Other:**
 - Apply for HACS default repository inclusion
