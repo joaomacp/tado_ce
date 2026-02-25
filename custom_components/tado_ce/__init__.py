@@ -2693,49 +2693,51 @@ async def _async_register_services(hass: HomeAssistant):
         time_period = call.data.get("time_period")
         overlay = call.data.get("overlay")
         
-        # CRITICAL FIX: Validate time_period (same as water heater)
-        if not time_period:
-            error_msg = "time_period is required for set_climate_timer service"
-            _LOGGER.error(error_msg)
-            raise vol.Invalid(error_msg)
-        
-        # Convert time_period to minutes with validation
-        try:
-            from datetime import timedelta
-            
-            # Home Assistant cv.time_period returns timedelta
-            if isinstance(time_period, timedelta):
-                duration_minutes = int(time_period.total_seconds() / 60)
-            else:
-                # Fallback: parse string format HH:MM:SS
-                time_parts = str(time_period).split(":")
-                if len(time_parts) != 3:
-                    raise ValueError(f"Invalid time_period format: {time_period}. Expected HH:MM:SS")
+        # v2.3.0: time_period is optional when overlay is specified (#152 - @mpartington)
+        # Validate: must have either time_period or overlay
+        duration_minutes = None
+        if time_period:
+            # Convert time_period to minutes with validation
+            try:
+                from datetime import timedelta
                 
-                hours = int(time_parts[0])
-                minutes = int(time_parts[1])
-                seconds = int(time_parts[2])
+                # Home Assistant cv.time_period returns timedelta
+                if isinstance(time_period, timedelta):
+                    duration_minutes = int(time_period.total_seconds() / 60)
+                else:
+                    # Fallback: parse string format HH:MM:SS
+                    time_parts = str(time_period).split(":")
+                    if len(time_parts) != 3:
+                        raise ValueError(f"Invalid time_period format: {time_period}. Expected HH:MM:SS")
+                    
+                    hours = int(time_parts[0])
+                    minutes = int(time_parts[1])
+                    seconds = int(time_parts[2])
+                    
+                    # Validate ranges
+                    if not (0 <= hours <= 24):
+                        raise ValueError(f"Hours must be 0-24, got {hours}")
+                    if not (0 <= minutes <= 59):
+                        raise ValueError(f"Minutes must be 0-59, got {minutes}")
+                    if not (0 <= seconds <= 59):
+                        raise ValueError(f"Seconds must be 0-59, got {seconds}")
+                    
+                    duration_minutes = hours * 60 + minutes + (seconds // 60)
                 
-                # Validate ranges
-                if not (0 <= hours <= 24):
-                    raise ValueError(f"Hours must be 0-24, got {hours}")
-                if not (0 <= minutes <= 59):
-                    raise ValueError(f"Minutes must be 0-59, got {minutes}")
-                if not (0 <= seconds <= 59):
-                    raise ValueError(f"Seconds must be 0-59, got {seconds}")
+                # Validate final duration (5-1440 minutes)
+                if duration_minutes < 5:
+                    raise ValueError(f"Duration must be at least 5 minutes, got {duration_minutes}")
+                if duration_minutes > 1440:
+                    raise ValueError(f"Duration must be at most 1440 minutes (24 hours), got {duration_minutes}")
                 
-                duration_minutes = hours * 60 + minutes + (seconds // 60)
-            
-            # Validate final duration (5-1440 minutes)
-            if duration_minutes < 5:
-                raise ValueError(f"Duration must be at least 5 minutes, got {duration_minutes}")
-            if duration_minutes > 1440:
-                raise ValueError(f"Duration must be at most 1440 minutes (24 hours), got {duration_minutes}")
-            
-            _LOGGER.info(f"Parsed time_period {time_period} to {duration_minutes} minutes")
-            
-        except (ValueError, AttributeError, TypeError) as e:
-            error_msg = f"Failed to parse time_period: {e}"
+                _LOGGER.info(f"Parsed time_period {time_period} to {duration_minutes} minutes")
+                
+            except (ValueError, AttributeError, TypeError) as e:
+                error_msg = f"Failed to parse time_period: {e}"
+                _LOGGER.error(error_msg)
+                raise vol.Invalid(error_msg)
+        elif not overlay:
+            error_msg = "Either time_period or overlay is required for set_climate_timer service"
             _LOGGER.error(error_msg)
             raise vol.Invalid(error_msg)
         
@@ -2758,7 +2760,10 @@ async def _async_register_services(hass: HomeAssistant):
                         if ent.entity_id == entity_id and hasattr(ent, 'async_set_timer'):
                             try:
                                 await ent.async_set_timer(temperature, duration_minutes, overlay)
-                                _LOGGER.info(f"Set timer for {entity_id}: {temperature}°C for {duration_minutes}min")
+                                if duration_minutes:
+                                    _LOGGER.info(f"Set timer for {entity_id}: {temperature}°C for {duration_minutes}min")
+                                elif overlay:
+                                    _LOGGER.info(f"Set timer for {entity_id}: {temperature}°C with overlay={overlay}")
                             except Exception as e:
                                 error_msg = f"Failed to set timer for {entity_id}: {e}"
                                 _LOGGER.error(error_msg)
@@ -2968,7 +2973,7 @@ async def _async_register_services(hass: HomeAssistant):
         schema=vol.Schema({
             vol.Required("entity_id"): cv.entity_ids,
             vol.Required("temperature"): vol.Coerce(float),
-            vol.Required("time_period"): cv.time_period,
+            vol.Optional("time_period"): cv.time_period,
             vol.Optional("overlay"): cv.string,
         })
     )

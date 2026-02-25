@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from .device_manager import get_hub_device_info, get_zone_device_info
 from .data_loader import load_zones_file, load_zones_info_file, load_home_state_file, get_zone_names
 from .insights_calculator import detect_window_predicted, TemperatureReading
+from .sensor import _format_tado_mode, _format_data_source, _format_confidence, _format_zone_type
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -119,9 +120,9 @@ class TadoHomeSensor(BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         return {
-            "tado_mode": self._tado_mode,
+            "tado_mode": _format_tado_mode(self._tado_mode),
             "presence_locked": self._presence_locked,
-            "data_source": self._data_source,
+            "data_source": _format_data_source(self._data_source),
         }
     
     def update(self):
@@ -254,8 +255,8 @@ class TadoPreheatNowSensor(BinarySensorEntity):
             "target_temperature": self._target_temp,
             "current_temperature": self._current_temp,
             "duration_minutes": self._duration_minutes,
-            "confidence": self._confidence,
-            "zone_type": self._zone_type,
+            "confidence": _format_confidence(self._confidence),
+            "zone_type": _format_zone_type(self._zone_type),
         }
     
     @property
@@ -374,23 +375,14 @@ class TadoWindowPredictedSensor(BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         return {
-            "confidence": self._confidence,
+            "confidence": _format_confidence(self._confidence),
             "temp_drop": self._temp_drop,
             "time_window_minutes": self._time_window,
             "recommendation": self._recommendation,
-            "zone_type": self._format_zone_type(),
+            "zone_type": _format_zone_type(self._zone_type),
             "readings_count": len(self._temp_history),
             "anomaly_readings": self._anomaly_readings,
         }
-    
-    def _format_zone_type(self) -> str:
-        """Format zone type for display."""
-        zone_type_map = {
-            "HEATING": "Heating",
-            "AIR_CONDITIONING": "Air Conditioning",
-            "HOT_WATER": "Hot Water",
-        }
-        return zone_type_map.get(self._zone_type, self._zone_type)
     
     @property
     def icon(self):

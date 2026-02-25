@@ -2,7 +2,51 @@
 
 All notable changes to Tado CE will be documented in this file.
 
-## [2.2.3] - Unreleased
+## [2.3.0] - 2026-02-25
+
+### Features
+- **Expanded Actionable Insights** — 21 new insight types across 7 categories, providing deeper analysis and more actionable recommendations:
+  - **Zone Efficiency**: Overlay Duration, Frequent Override, Heating Off Cold Room, Early Start Disabled, Poor Thermal Efficiency
+  - **Schedule & Boiler**: Schedule Gap, Boiler Flow Anomaly
+  - **Occupancy & Automation**: Away Heating Active, Home All Off
+  - **Weather & Environment**: Solar Gain, Solar AC Load, Frost Risk, Heating Season Advisory
+  - **Humidity & Air Quality**: Humidity Trend
+  - **Device Health**: Device Limitation, Geofencing Device Offline
+  - **API Monitoring**: API Usage Spike
+  - **Cross-Zone Analysis**: Cross-Zone Condensation, Cross-Zone Efficiency Comparison, Temperature Imbalance, Humidity Imbalance
+  - Zone insights sensor now includes 5 new zone-level insight types
+  - Home insights sensor aggregates all 21 new types with priority-based ranking
+
+### Improvements
+- **Enhanced `set_climate_timer` Service — Overlay Without Timer** ([#152](https://github.com/hiall-fyi/tado_ce/issues/152) - @mpartington)
+  - `time_period` is now optional when `overlay` is specified
+  - `overlay: next_time_block` sets temperature until next schedule change (no timer needed)
+  - `overlay: manual` sets temperature indefinitely
+  - Both Heating and AC zones supported (AC parity fix included)
+  - Backward compatible — existing automations with `time_period` still work unchanged
+
+### Bug Fixes
+- **Fixed Mold Risk Recommendation Suggesting Lower Temperature** ([#147](https://github.com/hiall-fyi/tado_ce/issues/147) - @ChrisMarriott38)
+  - Mold risk recommendation was suggesting "increase heating to 22°C" when room was already at 22.35°C
+  - Root cause: `min()` caps in recommendation logic capped suggestions at 22°C/23°C regardless of current temperature
+  - Removed hardcoded caps; now uses target temperature as base when available
+  - When room is already warm enough, suggests ventilation/dehumidifier instead of heating
+  - Same fix applied to comfort level recommendation which had identical pattern
+
+- **Fixed Hot Water Overlay Entities Showing for Combi Boilers** ([#149](https://github.com/hiall-fyi/tado_ce/issues/149) - @ChrisMarriott38)
+  - Overlay Mode and Timer Duration entities were incorrectly created for combi boiler hot water zones
+  - Root cause: v2.2.1 detection used `overlayType` and `temperature` as fallback indicators, but combi boilers can have these when manually controlled
+  - Now only uses `nextScheduleChange` as the sole indicator — tank-based systems have schedules, combi boilers don't
+
+- **Fixed Mobile Device Tracker Not Updating** ([#150](https://github.com/hiall-fyi/tado_ce/issues/150) - @driagi)
+  - Device tracker entities were stuck on the state from last HA restart/reload
+  - Root cause: HA's `TrackerEntity` base class defaults `should_poll=False` (designed for push-based integrations), so `update()` was never called after initial setup
+  - Added `should_poll=True` override to enable periodic polling every 30 seconds
+  - Device trackers now correctly reflect real-time location changes from Tado API
+
+---
+
+## [2.2.3] - 2026-02-24
 
 **Smart Day/Night Polling, AC Fan Fix & Climate Group Support**
 

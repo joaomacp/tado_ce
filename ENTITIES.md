@@ -2,6 +2,65 @@
 
 Complete list of all entities created by Tado CE integration.
 
+## 📋 v2.3.0 Changes
+
+### Expanded Actionable Insights
+
+21 new insight types added across 7 categories, significantly expanding the intelligence of both zone and home insights sensors.
+
+#### New Zone-Level Insights
+Added to `sensor.{zone}_insights` for each HEATING and AIR_CONDITIONING zone:
+
+| Insight Type | Display Name | Description |
+|-------------|-------------|-------------|
+| `overlay_duration` | Overlay Duration | Alerts when manual override has been active for an extended period |
+| `frequent_override` | Frequent Override | Detects multiple manual overrides in a recent period |
+| `heating_off_cold` | Heating Off Cold | Heating is off but room temperature is below comfort threshold |
+| `early_start_disabled` | Early Start Disabled | Early start / preheat feature is not enabled for the zone |
+| `thermal_efficiency` | Thermal Efficiency | Zone heating efficiency is below expected threshold |
+| `schedule_gap` | Schedule Gap | Large gap in heating schedule leaving zone unheated |
+| `boiler_flow_anomaly` | Boiler Flow Anomaly | Boiler flow temperature outside expected range |
+| `humidity_trend` | Humidity Trend | Sustained rising humidity trend detected |
+| `device_limitation` | Device Limitation | Device hardware limitations affecting available features |
+
+Updated zone insight types list: mold risk, comfort, window predicted, battery, connection, preheat timing, schedule deviation, heating anomaly, condensation, overlay duration, frequent override, heating off cold, early start disabled, thermal efficiency, schedule gap, boiler flow anomaly, humidity trend, device limitation
+
+#### New Home-Level Insights
+Added to `sensor.tado_ce_home_insights`:
+
+**Cross-Zone Analysis:**
+| Insight Type | Display Name | Description |
+|-------------|-------------|-------------|
+| `cross_zone_condensation` | Cross-Zone Condensation | Multiple zones with condensation risk |
+| `cross_zone_efficiency` | Cross-Zone Efficiency | Significant efficiency variation between zones |
+| `temp_imbalance` | Temperature Imbalance | Large temperature difference between zones |
+| `humidity_imbalance` | Humidity Imbalance | Large humidity difference between zones |
+
+**Occupancy & Automation:**
+| Insight Type | Display Name | Description |
+|-------------|-------------|-------------|
+| `away_heating` | Away Heating | Home in Away mode but heating still active |
+| `home_all_off` | Home All Off | Everyone home but all heating/cooling off |
+
+**Weather & Environment:**
+| Insight Type | Display Name | Description |
+|-------------|-------------|-------------|
+| `solar_gain` | Solar Gain | Solar gain detected, heating may be unnecessary |
+| `solar_ac_load` | Solar AC Load | Strong solar exposure increasing AC load |
+| `frost_risk` | Frost Risk | Outdoor temperature near freezing, frost protection needed |
+| `heating_season` | Heating Season | Seasonal heating guidance based on outdoor trends |
+
+**Device & API Health:**
+| Insight Type | Display Name | Description |
+|-------------|-------------|-------------|
+| `geofencing_offline` | Geofencing Offline | Mobile device used for geofencing is offline |
+| `api_usage_spike` | API Usage Spike | Unusual spike in API call rate |
+
+#### User-Friendly Insight Display Names (v2.3.0)
+All insight type values in `insight_types` attributes now display in user-friendly format (e.g., "Mold Risk" instead of "mold_risk", "Overlay Duration" instead of "overlay_duration").
+
+---
+
 ## 📋 v2.2.0 Changes
 
 ### Actionable Insights ([Discussion #112](https://github.com/hiall-fyi/tado_ce/discussions/112) - @tigro7)

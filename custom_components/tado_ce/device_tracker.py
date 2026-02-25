@@ -59,6 +59,16 @@ class TadoDeviceTracker(TrackerEntity):
         self._relative_distance = None
     
     @property
+    def should_poll(self) -> bool:
+        """Enable polling to read updated mobile device data from JSON file.
+        
+        v2.3.0: Fix for #150 — TrackerEntity defaults should_poll=False (designed
+        for push-based integrations). Our file-based architecture requires polling
+        so update() is called every SCAN_INTERVAL to re-read the JSON file.
+        """
+        return True
+    
+    @property
     def source_type(self) -> SourceType:
         return SourceType.GPS
     

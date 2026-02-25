@@ -177,6 +177,11 @@ def calculate_mold_risk_recommendation(
     v2.2.0: Uses delta-first format showing changes needed before absolute
     targets. Includes level transition guidance (e.g. Critical->High).
 
+    v2.2.2 FIX (#147): Removed arbitrary min() temperature caps that could
+    suggest temperatures below current room temp. When room is already warm
+    but surface temp is low (insulation issue), recommends ventilation/
+    insulation check instead of pointless heating increase.
+
     Args:
         risk_level: Current risk level (Critical, High, Medium, Low)
         zone_name: Name of the zone
@@ -213,7 +218,15 @@ def calculate_mold_risk_recommendation(
             delta_t = round(target_temp - current_temp, 1)
             actions.append(f"increase heating by {delta_t}\u00b0C (to {target_temp:.0f}\u00b0C)")
         elif current_temp:
-            actions.append(f"increase heating by +2\u00b0C (to {min(current_temp + 2, 23):.0f}\u00b0C)")
+            # v2.2.2 FIX (#147): Use target_temp as base when available,
+            # and guard against suggesting temp <= current_temp
+            suggested = (target_temp + 2) if target_temp else (current_temp + 2)
+            if suggested <= current_temp:
+                # Room already warm — issue is insulation, not heating
+                actions.append("check wall/window insulation - room warm but surfaces cold")
+            else:
+                delta = round(suggested - current_temp, 1)
+                actions.append(f"increase heating by +{delta}\u00b0C (to {suggested:.0f}\u00b0C)")
 
         if actions:
             return f"{zone_name} [{transition}]: URGENT - {' and '.join(actions)}. Ventilate 10 min."
@@ -230,8 +243,17 @@ def calculate_mold_risk_recommendation(
             )
         if margin is not None and margin < 5:
             needed = round(5 - margin, 1)
-            if current_temp:
-                suggested = min(current_temp + 1.5, 22)
+            # v2.2.2 FIX (#147): Use target_temp as base when available,
+            # guard against suggesting temp <= current_temp
+            base_temp = target_temp if target_temp else current_temp
+            if base_temp:
+                suggested = base_temp + 1.5
+                if current_temp and suggested <= current_temp:
+                    # Room already warm — issue is insulation, not heating
+                    return (
+                        f"{zone_name} [{transition}]: Surface {margin:.1f}\u00b0C above dew point "
+                        f"(need +{needed}\u00b0C margin) - improve insulation or ventilate 15 min"
+                    )
                 return (
                     f"{zone_name} [{transition}]: Surface {margin:.1f}\u00b0C above dew point "
                     f"(need +{needed}\u00b0C margin) - increase heating by +1.5\u00b0C (to {suggested:.0f}\u00b0C)"
@@ -320,7 +342,9 @@ def calculate_comfort_recommendation(
                     f"increase setpoint to {suggested:.0f}\u00b0C if not warming up"
                 )
             else:
-                suggested = min(current_temp + 2, 22)
+                # v2.2.2 FIX (#147): Remove min() cap that could suggest
+                # temp <= current_temp. Use current_temp + 2 directly.
+                suggested = current_temp + 2
                 return (
                     f"{zone_name}: {current_temp:.1f}\u00b0C feels cold - "
                     f"set heating to {suggested:.0f}\u00b0C"
@@ -402,6 +426,67 @@ def calculate_condensation_recommendation(
             return f"{zone_name}: {margin:.1f}°C above dew point - monitor conditions, consider raising AC setpoint"
         return f"{zone_name}: Moderate condensation risk - ensure adequate ventilation"
     
+    return ""
+
+
+def calculate_heating_condensation_recommendation(
+    risk_level: str,
+    zone_name: str,
+    margin: Optional[float] = None,
+    humidity: Optional[float] = None,
+    surface_temp: Optional[float] = None,
+    dew_point: Optional[float] = None,
+) -> str:
+    """Calculate SMART recommendation for condensation risk (HEATING zones).
+
+    For heating zones, condensation forms on the INSIDE of windows when
+    indoor humidity is high and window inner surface temp drops below
+    indoor dew point.
+
+    All values are calculated from current conditions — NO hardcoded
+    temperature or humidity thresholds (CP-5).
+
+    Args:
+        risk_level: Current risk level (Critical, High, Medium, Low, None)
+        zone_name: Name of the zone
+        margin: Temperature margin (surface_temp - dew_point)
+        humidity: Current indoor humidity percentage
+        surface_temp: Estimated window inner surface temperature
+        dew_point: Indoor dew point temperature
+
+    Returns:
+        SMART recommendation string (empty if no action needed)
+    """
+    if risk_level in ("None", "Low"):
+        return ""
+
+    if risk_level == "Critical":
+        parts = [f"{zone_name}: URGENT — condensation forming on windows"]
+        if surface_temp is not None and dew_point is not None and margin is not None:
+            parts.append(
+                f"Surface temp {surface_temp:.1f}°C is {abs(margin):.1f}°C below dew point {dew_point:.1f}°C"
+            )
+        parts.append("Open window briefly, use extractor fan, wipe surfaces")
+        return ". ".join(parts)
+
+    if risk_level == "High":
+        parts = [f"{zone_name}: Windows likely fogging"]
+        if margin is not None and dew_point is not None:
+            parts.append(
+                f"Surface temp only {margin:.1f}°C above dew point {dew_point:.1f}°C"
+            )
+        parts.append("Ventilate or increase heating")
+        return ". ".join(parts)
+
+    if risk_level == "Medium":
+        parts = [f"{zone_name}: Monitor — condensation possible"]
+        if margin is not None and dew_point is not None:
+            parts.append(
+                f"Surface temp {margin:.1f}°C above dew point {dew_point:.1f}°C"
+            )
+        parts.append("Ensure adequate ventilation")
+        return ". ".join(parts)
+
     return ""
 
 
@@ -670,6 +755,7 @@ def get_insight_priority(insight_type: str, severity: str) -> InsightPriority:
         InsightPriority enum value
     """
     priority_map = {
+        # Existing insights
         ("window_predicted", "high"): InsightPriority.HIGH,
         ("window_predicted", "medium"): InsightPriority.MEDIUM,
         ("window_predicted", "low"): InsightPriority.LOW,
@@ -688,64 +774,184 @@ def get_insight_priority(insight_type: str, severity: str) -> InsightPriority:
         ("api", "critical"): InsightPriority.CRITICAL,
         ("api", "warning"): InsightPriority.HIGH,
         ("api", "high"): InsightPriority.MEDIUM,
+        # v2.3.0: Category A — Overlay & Schedule
+        ("overlay_duration", "medium"): InsightPriority.MEDIUM,
+        ("overlay_duration", "low"): InsightPriority.LOW,
+        ("schedule_gap", "medium"): InsightPriority.MEDIUM,
+        ("frequent_override", "low"): InsightPriority.LOW,
+        # v2.3.0: Category B — Home/Away Presence
+        ("away_heating", "high"): InsightPriority.HIGH,
+        ("home_all_off", "medium"): InsightPriority.MEDIUM,
+        # v2.3.0: Category C — Weather & Outdoor
+        ("solar_gain", "low"): InsightPriority.LOW,
+        ("solar_ac_load", "low"): InsightPriority.LOW,
+        ("frost_risk", "high"): InsightPriority.HIGH,
+        ("frost_risk", "medium"): InsightPriority.MEDIUM,
+        ("heating_season", "low"): InsightPriority.LOW,
+        # v2.3.0: Category D — Heating/AC Efficiency
+        ("heating_off_cold", "medium"): InsightPriority.MEDIUM,
+        ("boiler_flow_anomaly", "high"): InsightPriority.HIGH,
+        ("boiler_flow_anomaly", "medium"): InsightPriority.MEDIUM,
+        ("early_start_disabled", "low"): InsightPriority.LOW,
+        ("thermal_efficiency", "medium"): InsightPriority.MEDIUM,
+        # v2.3.0: Category E — Cross-Zone
+        ("cross_zone_condensation", "high"): InsightPriority.HIGH,
+        ("cross_zone_efficiency", "low"): InsightPriority.LOW,
+        ("temp_imbalance", "low"): InsightPriority.LOW,
+        ("humidity_imbalance", "medium"): InsightPriority.MEDIUM,
+        # v2.3.0: Category F — Environment Trends
+        ("humidity_trend", "medium"): InsightPriority.MEDIUM,
+        # v2.3.0: Category G — Device & System
+        ("device_limitation", "low"): InsightPriority.LOW,
+        ("geofencing_offline", "medium"): InsightPriority.MEDIUM,
+        ("api_usage_spike", "medium"): InsightPriority.MEDIUM,
     }
     return priority_map.get((insight_type, severity.lower()), InsightPriority.NONE)
 
 
+def _get_action_label(insight_type: str) -> str:
+    """Map insight_type to a user-friendly action label for grouping."""
+    action_map = {
+        # Device & maintenance
+        "battery": "Replace batteries",
+        "connection": "Check device connection",
+        # Comfort & environment
+        "mold_risk": "Improve ventilation (mold risk)",
+        "condensation": "Reduce condensation risk",
+        "comfort": "Review comfort settings",
+        "humidity_trend": "Monitor humidity trend",
+        "humidity_imbalance": "Balance humidity across zones",
+        # Heating efficiency
+        "thermal_efficiency": "Check heating efficiency",
+        "heating_anomaly": "Investigate heating anomaly",
+        "heating_off_cold": "Turn on heating (zone too cold)",
+        "boiler_flow_anomaly": "Check boiler flow temperature",
+        "cross_zone_efficiency": "Improve cross-zone efficiency",
+        "cross_zone_condensation": "Address cross-zone condensation",
+        # Schedule & overrides
+        "frequent_override": "Review permanent overrides",
+        "overlay_duration": "Check long-running overlays",
+        "schedule_deviation": "Review schedule deviation",
+        "schedule_gap": "Fill schedule gaps",
+        "early_start_disabled": "Enable early start",
+        # Preheat & timing
+        "preheat_timing": "Adjust preheat timing",
+        # Weather & environment
+        "weather_impact": "Weather affecting heating",
+        "frost_risk": "Frost protection needed",
+        "solar_gain": "Solar gain detected",
+        "solar_ac_load": "Solar increasing AC load",
+        "heating_season": "Heating season advisory",
+        "temp_imbalance": "Balance temperatures across zones",
+        # Window
+        "window_predicted": "Close window (heat loss detected)",
+        "cross_zone_window": "Multiple windows open",
+        "cross_zone_mold": "Mold risk across multiple zones",
+        # System
+        "away_heating": "Heating active while away",
+        "home_all_off": "All zones off while home",
+        "api_quota_planning": "Review API quota usage",
+        "api_usage_spike": "API usage spike detected",
+        "geofencing_offline": "Check geofencing status",
+        "device_limitation": "Device limitation detected",
+    }
+    return action_map.get(insight_type, insight_type.replace("_", " ").title())
+
+
 def aggregate_home_insights(zone_insights: dict[str, list[Insight]]) -> dict:
-    """Aggregate insights from all zones into home-level summary.
-    
+    """Aggregate insights from all zones into action-based home summary.
+
+    Groups insights by action type across zones, producing a list of
+    actionable items like "Replace batteries: Guest, Lounge" instead of
+    raw priority counts.
+
     Args:
         zone_insights: Dict mapping zone names to lists of Insight objects
-    
+
     Returns:
-        Dict with aggregated insights summary
+        Dict with action-based aggregated insights
     """
+    empty_result = {
+        "total_insights": 0,
+        "top_priority": "none",
+        "top_recommendation": "",
+        "summary": "All zones are running well — no issues detected.",
+        "actions_needed": [],
+        "zones_ok": [],
+        "zones_with_issues": [],
+    }
     if not zone_insights:
-        return {
-            "total_insights": 0,
-            "critical_count": 0,
-            "high_count": 0,
-            "medium_count": 0,
-            "low_count": 0,
-            "top_priority": "none",
-            "top_recommendation": "",
-            "zones_with_issues": [],
-        }
-    
-    all_insights = []
-    zones_with_issues = []
-    
+        return empty_result
+
+    all_insights: list[Insight] = []
+    zones_with_issues: list[str] = []
+    all_zone_names: set[str] = set()
+
     for zone_name, insights in zone_insights.items():
+        if zone_name.startswith("_"):
+            # Hub-level insights (e.g. "_hub") — no zone name to track
+            all_insights.extend(insights)
+            continue
+        all_zone_names.add(zone_name)
         if insights:
             zones_with_issues.append(zone_name)
             all_insights.extend(insights)
-    
-    # Count by priority
-    critical_count = sum(1 for i in all_insights if i.priority == InsightPriority.CRITICAL)
-    high_count = sum(1 for i in all_insights if i.priority == InsightPriority.HIGH)
-    medium_count = sum(1 for i in all_insights if i.priority == InsightPriority.MEDIUM)
-    low_count = sum(1 for i in all_insights if i.priority == InsightPriority.LOW)
-    
-    # Find top priority insight
-    top_insight = max(all_insights, key=lambda i: i.priority, default=None)
-    
-    if top_insight:
-        top_priority = top_insight.priority.name.lower()
-        top_recommendation = top_insight.recommendation
+
+    if not all_insights:
+        empty_result["zones_ok"] = sorted(all_zone_names)
+        return empty_result
+
+    # Group by action label, tracking zones and max priority per action
+    from collections import OrderedDict
+    action_groups: dict[str, dict] = {}
+    for insight in all_insights:
+        label = _get_action_label(insight.insight_type)
+        if label not in action_groups:
+            action_groups[label] = {"zones": [], "priority": insight.priority}
+        grp = action_groups[label]
+        if insight.zone_name and insight.zone_name not in grp["zones"]:
+            grp["zones"].append(insight.zone_name)
+        if insight.priority > grp["priority"]:
+            grp["priority"] = insight.priority
+
+    # Sort actions by priority (highest first), then alphabetically
+    sorted_actions = sorted(
+        action_groups.items(),
+        key=lambda x: (-x[1]["priority"], x[0]),
+    )
+
+    # Build actions_needed list: "Action: Zone1, Zone2" or just "Action" for cross-zone
+    actions_needed = []
+    for label, grp in sorted_actions:
+        if grp["zones"]:
+            actions_needed.append(f"{label}: {', '.join(grp['zones'])}")
+        else:
+            actions_needed.append(label)
+
+    # Find top priority
+    top_insight = max(all_insights, key=lambda i: i.priority)
+    top_priority = top_insight.priority.name.lower()
+    top_recommendation = top_insight.recommendation
+
+    # Zones with no issues
+    zones_ok = sorted(all_zone_names - set(zones_with_issues))
+
+    # Build summary sentence
+    n_actions = len(actions_needed)
+    n_zones = len(zones_with_issues)
+    if n_actions == 1:
+        summary = f"1 action needed across {n_zones} zone{'s' if n_zones != 1 else ''}."
     else:
-        top_priority = "none"
-        top_recommendation = ""
-    
+        summary = f"{n_actions} actions needed across {n_zones} zone{'s' if n_zones != 1 else ''}."
+
     return {
         "total_insights": len(all_insights),
-        "critical_count": critical_count,
-        "high_count": high_count,
-        "medium_count": medium_count,
-        "low_count": low_count,
         "top_priority": top_priority,
         "top_recommendation": top_recommendation,
-        "zones_with_issues": zones_with_issues,
+        "summary": summary,
+        "actions_needed": actions_needed,
+        "zones_ok": zones_ok,
+        "zones_with_issues": sorted(zones_with_issues),
     }
 
 
@@ -1194,3 +1400,884 @@ def calculate_calls_per_hour(history: list) -> Optional[float]:
         return len(history) / hours_span
     except (ValueError, TypeError, AttributeError):
         return None
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category A (Overlay & Schedule)
+# ============================================================================
+
+
+def calculate_overlay_duration_insight(
+    overlay_type: Optional[str] = None,
+    next_schedule_change: Optional[str] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Detect permanent manual overlay that user may have forgotten.
+
+    Triggers when overlayType is present but nextScheduleChange is null,
+    meaning the overlay will persist indefinitely until manually cancelled.
+
+    Args:
+        overlay_type: Current overlay type (MANUAL, etc.) or None
+        next_schedule_change: Next schedule change time, or None if permanent
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if permanent overlay detected, None otherwise
+    """
+    if not overlay_type:
+        return None
+    # Timer-based overlays have a nextScheduleChange — not a concern
+    if next_schedule_change is not None:
+        return None
+
+    rec = (
+        f"{zone_name}: Manual override ({overlay_type}) is set to permanent "
+        f"- it will stay until you cancel it. Review if this is intentional."
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="overlay_duration",
+        zone_name=zone_name,
+    )
+
+
+def calculate_schedule_gap_insight(
+    schedule_blocks: Optional[list] = None,
+    current_temp: Optional[float] = None,
+    next_target_temp: Optional[float] = None,
+    longest_off_hours: Optional[float] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Detect long OFF gaps in schedule while room is cold.
+
+    Triggers when the schedule has a long continuous OFF period and the
+    current room temperature is below the next scheduled target.
+
+    Args:
+        schedule_blocks: List of schedule block dicts (not used directly,
+            but indicates schedule exists)
+        current_temp: Current room temperature
+        next_target_temp: Next scheduled target temperature
+        longest_off_hours: Duration of longest OFF period in hours
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if significant gap found, None otherwise
+    """
+    if schedule_blocks is None or current_temp is None:
+        return None
+    if next_target_temp is None or longest_off_hours is None:
+        return None
+    if longest_off_hours < 6:
+        return None
+
+    temp_deficit = next_target_temp - current_temp
+    if temp_deficit < 2.0:
+        return None
+
+    rec = (
+        f"{zone_name}: Schedule has a {longest_off_hours:.0f}h OFF gap and "
+        f"room is {current_temp:.1f}\u00b0C ({temp_deficit:.1f}\u00b0C below "
+        f"next target {next_target_temp:.0f}\u00b0C) - consider adding a "
+        f"setback temperature to prevent deep cooling"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="schedule_gap",
+        zone_name=zone_name,
+    )
+
+
+def calculate_frequent_override_insight(
+    overlay_type: Optional[str] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Suggest schedule review when manual override is active.
+
+    Simple insight that triggers whenever an overlay is active,
+    reminding the user to consider adjusting their schedule.
+
+    Args:
+        overlay_type: Current overlay type or None
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if overlay active, None otherwise
+    """
+    if not overlay_type:
+        return None
+
+    rec = (
+        f"{zone_name}: Currently on manual override ({overlay_type}) "
+        f"- if you override often, consider adjusting the schedule "
+        f"to match your routine"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="frequent_override",
+        zone_name=zone_name,
+    )
+
+
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category B (Home/Away Presence)
+# ============================================================================
+
+
+def calculate_away_heating_active_insight(
+    presence: Optional[str] = None,
+    active_zones: Optional[list] = None,
+) -> Optional[Insight]:
+    """Detect energy waste: home is AWAY but zones still heating/cooling.
+
+    Args:
+        presence: Home presence state ("HOME", "AWAY", etc.)
+        active_zones: List of dicts with keys: zone_name, power_pct, zone_type
+            Only zones with power > 0 should be included.
+
+    Returns:
+        Insight if AWAY with active heating/cooling, None otherwise
+    """
+    if presence is None or presence.upper() != "AWAY":
+        return None
+    if not active_zones:
+        return None
+
+    zone_descs = []
+    for z in active_zones[:5]:
+        name = z.get("zone_name", "Unknown")
+        pct = z.get("power_pct", 0)
+        zone_descs.append(f"{name} ({pct:.0f}%)")
+
+    zones_str = ", ".join(zone_descs)
+    rec = (
+        f"Home is AWAY but {len(active_zones)} zone(s) still active: "
+        f"{zones_str} - check if this is intentional"
+    )
+
+    return Insight(
+        priority=InsightPriority.HIGH,
+        recommendation=rec,
+        insight_type="away_heating",
+        zone_name=None,
+    )
+
+
+def calculate_home_all_off_insight(
+    presence: Optional[str] = None,
+    all_zones_off: bool = True,
+    coldest_zone_name: Optional[str] = None,
+    coldest_zone_temp: Optional[float] = None,
+    coldest_zone_target: Optional[float] = None,
+) -> Optional[Insight]:
+    """Detect when someone is home but all heating is off and rooms are cold.
+
+    Args:
+        presence: Home presence state
+        all_zones_off: Whether all zones have power=OFF
+        coldest_zone_name: Name of the coldest zone
+        coldest_zone_temp: Temperature of the coldest zone
+        coldest_zone_target: Scheduled target of the coldest zone
+
+    Returns:
+        Insight if HOME with all zones off and cold, None otherwise
+    """
+    if presence is None or presence.upper() != "HOME":
+        return None
+    if not all_zones_off:
+        return None
+    if coldest_zone_temp is None or coldest_zone_target is None:
+        return None
+
+    deficit = coldest_zone_target - coldest_zone_temp
+    if deficit < 2.0:
+        return None
+
+    rec = (
+        f"Someone is home but all heating is off. "
+        f"{coldest_zone_name}: {coldest_zone_temp:.1f}\u00b0C "
+        f"({deficit:.1f}\u00b0C below target {coldest_zone_target:.0f}\u00b0C)"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="home_all_off",
+        zone_name=None,
+    )
+
+
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category C (Weather & Outdoor)
+# ============================================================================
+
+
+def calculate_solar_gain_insight(
+    solar_intensity_pct: Optional[float] = None,
+    heating_zones_active: Optional[list] = None,
+) -> Optional[Insight]:
+    """Suggest leveraging solar gain when sun is strong and heating is active.
+
+    Args:
+        solar_intensity_pct: Solar intensity percentage (0-100)
+        heating_zones_active: List of dicts with keys: zone_name, power_pct
+            Only heating zones with power > 0.
+
+    Returns:
+        Insight if solar gain opportunity exists, None otherwise
+    """
+    if solar_intensity_pct is None or solar_intensity_pct < 60:
+        return None
+    if not heating_zones_active:
+        return None
+
+    zone_names = [z.get("zone_name", "") for z in heating_zones_active[:3]]
+    zones_str = ", ".join(zone_names)
+    rec = (
+        f"Solar intensity is {solar_intensity_pct:.0f}% while heating is "
+        f"active in {zones_str} - open curtains to leverage solar gain "
+        f"and consider reducing target temperature"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="solar_gain",
+        zone_name=None,
+    )
+
+
+def calculate_solar_ac_load_insight(
+    solar_intensity_pct: Optional[float] = None,
+    ac_zones_active: Optional[list] = None,
+) -> Optional[Insight]:
+    """Warn about solar load increasing AC demand.
+
+    Args:
+        solar_intensity_pct: Solar intensity percentage (0-100)
+        ac_zones_active: List of dicts with keys: zone_name
+
+    Returns:
+        Insight if solar load is increasing AC demand, None otherwise
+    """
+    if solar_intensity_pct is None or solar_intensity_pct < 60:
+        return None
+    if not ac_zones_active:
+        return None
+
+    zone_names = [z.get("zone_name", "") for z in ac_zones_active[:3]]
+    zones_str = ", ".join(zone_names)
+    rec = (
+        f"Solar intensity is {solar_intensity_pct:.0f}% while AC is active "
+        f"in {zones_str} - close blinds/curtains to reduce cooling demand"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="solar_ac_load",
+        zone_name=None,
+    )
+
+
+def calculate_frost_risk_insight(
+    outdoor_temp: Optional[float] = None,
+) -> Optional[Insight]:
+    """Warn about frost/pipe freezing risk when outdoor temp near freezing.
+
+    Args:
+        outdoor_temp: Current outdoor temperature in °C
+
+    Returns:
+        Insight if frost risk detected, None otherwise
+    """
+    if outdoor_temp is None:
+        return None
+    if outdoor_temp > 3.0:
+        return None
+
+    if outdoor_temp <= 0:
+        rec = (
+            f"Outdoor temperature is {outdoor_temp:.1f}\u00b0C (below freezing) "
+            f"- ensure heating is not fully off to prevent pipe freezing"
+        )
+        priority = InsightPriority.HIGH
+    else:
+        rec = (
+            f"Outdoor temperature is {outdoor_temp:.1f}\u00b0C (approaching "
+            f"freezing) - monitor heating to prevent pipe freezing risk"
+        )
+        priority = InsightPriority.MEDIUM
+
+    return Insight(
+        priority=priority,
+        recommendation=rec,
+        insight_type="frost_risk",
+        zone_name=None,
+    )
+
+
+def calculate_heating_season_advisory_insight(
+    current_avg_7d: Optional[float] = None,
+    previous_avg_7d: Optional[float] = None,
+) -> Optional[Insight]:
+    """Advise on seasonal heating changes based on outdoor temp trends.
+
+    Compares current 7-day average to previous 7-day average to detect
+    significant warming or cooling trends.
+
+    Args:
+        current_avg_7d: Current 7-day average outdoor temperature
+        previous_avg_7d: Previous 7-day average outdoor temperature
+
+    Returns:
+        Insight if significant seasonal trend detected, None otherwise
+    """
+    if current_avg_7d is None or previous_avg_7d is None:
+        return None
+
+    diff = round(current_avg_7d - previous_avg_7d, 1)
+    if abs(diff) < 3.0:
+        return None
+
+    if diff > 0:
+        rec = (
+            f"Outdoor temps warming: 7-day avg {current_avg_7d:.1f}\u00b0C "
+            f"(+{diff:.1f}\u00b0C vs previous week) - consider reducing "
+            f"heating schedules as weather improves"
+        )
+    else:
+        rec = (
+            f"Outdoor temps cooling: 7-day avg {current_avg_7d:.1f}\u00b0C "
+            f"({diff:.1f}\u00b0C vs previous week) - consider increasing "
+            f"heating schedules as weather gets colder"
+        )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="heating_season",
+        zone_name=None,
+    )
+
+
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category D (Heating/AC Efficiency)
+# ============================================================================
+
+
+def calculate_heating_off_cold_room_insight(
+    power_state: Optional[str] = None,
+    current_temp: Optional[float] = None,
+    target_temp: Optional[float] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Detect when heating is OFF but room has dropped significantly below target.
+
+    Args:
+        power_state: Zone power state ("ON", "OFF")
+        current_temp: Current room temperature
+        target_temp: Last known or scheduled target temperature
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if room is cold with heating off, None otherwise
+    """
+    if power_state is None or power_state.upper() != "OFF":
+        return None
+    if current_temp is None or target_temp is None:
+        return None
+
+    deficit = target_temp - current_temp
+    if deficit < 3.0:
+        return None
+
+    rec = (
+        f"{zone_name}: Heating is OFF but room is {current_temp:.1f}\u00b0C "
+        f"({deficit:.1f}\u00b0C below target {target_temp:.0f}\u00b0C) "
+        f"- consider turning heating back on"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="heating_off_cold",
+        zone_name=zone_name,
+    )
+
+
+def calculate_boiler_flow_anomaly_insight(
+    flow_temp: Optional[float] = None,
+    heating_power_pct: Optional[float] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Detect boiler flow temperature anomaly relative to heating demand.
+
+    Triggers when flow temp is high but heating demand is low, or
+    flow temp is low but heating demand is high.
+
+    Args:
+        flow_temp: Boiler flow temperature in °C
+        heating_power_pct: Current heating power percentage (0-100)
+        zone_name: Name of the zone (or empty for hub-level)
+
+    Returns:
+        Insight if flow temp anomaly detected, None otherwise
+    """
+    if flow_temp is None or heating_power_pct is None:
+        return None
+
+    # High flow temp but low demand
+    if flow_temp > 60 and heating_power_pct < 20:
+        rec = (
+            f"Boiler flow temp is {flow_temp:.0f}\u00b0C but heating demand "
+            f"is only {heating_power_pct:.0f}% - flow temperature may be "
+            f"set too high, consider lowering for efficiency"
+        )
+        return Insight(
+            priority=InsightPriority.MEDIUM,
+            recommendation=rec,
+            insight_type="boiler_flow_anomaly",
+            zone_name=zone_name if zone_name else None,
+        )
+
+    # Low flow temp but high demand
+    if flow_temp < 30 and heating_power_pct > 80:
+        rec = (
+            f"Boiler flow temp is only {flow_temp:.0f}\u00b0C but heating "
+            f"demand is {heating_power_pct:.0f}% - boiler may not be "
+            f"firing correctly, check boiler status"
+        )
+        return Insight(
+            priority=InsightPriority.HIGH,
+            recommendation=rec,
+            insight_type="boiler_flow_anomaly",
+            zone_name=zone_name if zone_name else None,
+        )
+
+    return None
+
+
+def calculate_early_start_disabled_insight(
+    early_start_enabled: bool = True,
+    preheat_time_minutes: Optional[float] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Suggest enabling Early Start when preheat time is long.
+
+    Args:
+        early_start_enabled: Whether Early Start switch is ON
+        preheat_time_minutes: Estimated preheat time from Thermal Analytics
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if Early Start disabled with long preheat, None otherwise
+    """
+    if early_start_enabled:
+        return None
+    if preheat_time_minutes is None or preheat_time_minutes < 30:
+        return None
+
+    rec = (
+        f"{zone_name}: Early Start is disabled but preheat takes "
+        f"~{preheat_time_minutes:.0f} min - enable Early Start so the "
+        f"room is warm when your schedule starts"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="early_start_disabled",
+        zone_name=zone_name,
+    )
+
+
+def calculate_poor_thermal_efficiency_insight(
+    thermal_inertia: Optional[float] = None,
+    heating_rate: Optional[float] = None,
+    confidence_score: Optional[float] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Detect poor thermal efficiency from Thermal Analytics data.
+
+    Triggers when thermal inertia is high or heating rate is very low,
+    suggesting insulation or radiator issues.
+
+    Args:
+        thermal_inertia: Thermal inertia in minutes
+        heating_rate: Heating rate in °C/hour
+        confidence_score: Analysis confidence (0.0-1.0)
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if poor efficiency detected, None otherwise
+    """
+    if confidence_score is not None and confidence_score < 0.5:
+        return None
+
+    if thermal_inertia is None and heating_rate is None:
+        return None
+
+    issues = []
+    if thermal_inertia is not None and thermal_inertia > 60:
+        issues.append(f"thermal inertia is {thermal_inertia:.0f} min (high)")
+    if heating_rate is not None and heating_rate < 0.5:
+        issues.append(f"heating rate is {heating_rate:.2f}\u00b0C/h (slow)")
+
+    if not issues:
+        return None
+
+    issues_str = " and ".join(issues)
+    rec = (
+        f"{zone_name}: {issues_str} - check insulation, "
+        f"radiator sizing, or TRV operation"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="thermal_efficiency",
+        zone_name=zone_name,
+    )
+
+
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category E (Cross-Zone)
+# ============================================================================
+
+
+def aggregate_cross_zone_condensation(
+    zone_condensation_states: dict,
+) -> Optional[Insight]:
+    """Aggregate condensation risk across zones.
+
+    Triggers when 3+ zones have condensation risk, suggesting a
+    whole-house ventilation issue.
+
+    Args:
+        zone_condensation_states: Dict mapping zone_name -> risk_level string
+
+    Returns:
+        Insight if whole-house condensation issue, None otherwise
+    """
+    if not zone_condensation_states:
+        return None
+
+    affected = [
+        name for name, level in zone_condensation_states.items()
+        if level not in ("unavailable", "unknown", "None", "Low", None)
+    ]
+
+    if len(affected) < 3:
+        return None
+
+    zones_str = ", ".join(affected[:5])
+    rec = (
+        f"Whole-house condensation risk: {len(affected)} zones affected "
+        f"({zones_str}) - check ventilation system and consider "
+        f"using a dehumidifier"
+    )
+
+    return Insight(
+        priority=InsightPriority.HIGH,
+        recommendation=rec,
+        insight_type="cross_zone_condensation",
+        zone_name=None,
+    )
+
+
+def calculate_cross_zone_efficiency_insight(
+    zone_heating_rates: dict,
+) -> Optional[Insight]:
+    """Compare heating efficiency across zones.
+
+    Triggers when one zone heats significantly slower than the average.
+
+    Args:
+        zone_heating_rates: Dict mapping zone_name -> heating_rate (°C/h)
+
+    Returns:
+        Insight if significant efficiency difference found, None otherwise
+    """
+    if not zone_heating_rates or len(zone_heating_rates) < 2:
+        return None
+
+    rates = list(zone_heating_rates.values())
+    avg_rate = sum(rates) / len(rates)
+    if avg_rate <= 0:
+        return None
+
+    # Find the slowest zone
+    slowest_zone = min(zone_heating_rates, key=zone_heating_rates.get)
+    slowest_rate = zone_heating_rates[slowest_zone]
+
+    # Trigger if slowest is less than half the average
+    if slowest_rate >= avg_rate * 0.5:
+        return None
+
+    rec = (
+        f"{slowest_zone} heats at {slowest_rate:.2f}\u00b0C/h "
+        f"(avg across zones: {avg_rate:.2f}\u00b0C/h) - "
+        f"investigate insulation or radiator issues in this zone"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="cross_zone_efficiency",
+        zone_name=None,
+    )
+
+
+def calculate_temperature_imbalance_insight(
+    zone_temperatures: dict,
+) -> Optional[Insight]:
+    """Detect large temperature differences between active zones.
+
+    Args:
+        zone_temperatures: Dict mapping zone_name -> temperature (°C)
+            Only include zones where power is ON.
+
+    Returns:
+        Insight if significant imbalance found, None otherwise
+    """
+    if not zone_temperatures or len(zone_temperatures) < 2:
+        return None
+
+    warmest_zone = max(zone_temperatures, key=zone_temperatures.get)
+    coldest_zone = min(zone_temperatures, key=zone_temperatures.get)
+    warmest_temp = zone_temperatures[warmest_zone]
+    coldest_temp = zone_temperatures[coldest_zone]
+
+    diff = warmest_temp - coldest_temp
+    if diff < 4.0:
+        return None
+
+    rec = (
+        f"Temperature imbalance: {warmest_zone} is {warmest_temp:.1f}\u00b0C "
+        f"but {coldest_zone} is {coldest_temp:.1f}\u00b0C "
+        f"({diff:.1f}\u00b0C difference) - check heat distribution"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="temp_imbalance",
+        zone_name=None,
+    )
+
+
+def calculate_humidity_imbalance_insight(
+    zone_humidities: dict,
+) -> Optional[Insight]:
+    """Detect when one zone has significantly higher humidity than others.
+
+    Args:
+        zone_humidities: Dict mapping zone_name -> humidity (%)
+
+    Returns:
+        Insight if significant humidity imbalance found, None otherwise
+    """
+    if not zone_humidities or len(zone_humidities) < 2:
+        return None
+
+    values = list(zone_humidities.values())
+    avg_humidity = sum(values) / len(values)
+
+    # Find the most humid zone
+    most_humid_zone = max(zone_humidities, key=zone_humidities.get)
+    most_humid_val = zone_humidities[most_humid_zone]
+
+    excess = most_humid_val - avg_humidity
+    if excess < 15:
+        return None
+
+    rec = (
+        f"{most_humid_zone} humidity is {most_humid_val:.0f}% "
+        f"({excess:.0f}% above average of {avg_humidity:.0f}%) "
+        f"- check ventilation in this zone"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="humidity_imbalance",
+        zone_name=None,
+    )
+
+
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category F (Environment Trends)
+# ============================================================================
+
+
+def calculate_humidity_trend_insight(
+    current_humidity: Optional[float] = None,
+    humidity_history: Optional[list] = None,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Detect rising humidity trend in a zone.
+
+    Compares current humidity to the average of recent history to detect
+    a significant upward trend.
+
+    Args:
+        current_humidity: Current humidity percentage
+        humidity_history: List of recent humidity readings (floats)
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if humidity trending upward significantly, None otherwise
+    """
+    if current_humidity is None or not humidity_history:
+        return None
+    if len(humidity_history) < 6:
+        return None
+
+    avg_history = sum(humidity_history) / len(humidity_history)
+    rise = current_humidity - avg_history
+    if rise < 10:
+        return None
+
+    rec = (
+        f"{zone_name}: Humidity rising - currently {current_humidity:.0f}% "
+        f"(+{rise:.0f}% above recent average of {avg_history:.0f}%) "
+        f"- ventilate to prevent mold risk"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="humidity_trend",
+        zone_name=zone_name,
+    )
+
+
+# ============================================================================
+# v2.3.0: Expanded Actionable Insights — Category G (Device & System)
+# ============================================================================
+
+
+def calculate_device_limitation_insight(
+    has_humidity_sensor: bool = True,
+    has_temperature_sensor: bool = True,
+    zone_name: str = "",
+) -> Optional[Insight]:
+    """Inform user when a zone device lacks expected sensors.
+
+    Args:
+        has_humidity_sensor: Whether the zone has humidity data
+        has_temperature_sensor: Whether the zone has temperature data
+        zone_name: Name of the zone
+
+    Returns:
+        Insight if device has missing sensors, None otherwise
+    """
+    if has_humidity_sensor and has_temperature_sensor:
+        return None
+
+    missing = []
+    if not has_humidity_sensor:
+        missing.append("humidity")
+    if not has_temperature_sensor:
+        missing.append("temperature")
+
+    missing_str = " and ".join(missing)
+    rec = (
+        f"{zone_name}: Device has no {missing_str} sensor "
+        f"- some insights (mold risk, comfort) may not be available"
+    )
+
+    return Insight(
+        priority=InsightPriority.LOW,
+        recommendation=rec,
+        insight_type="device_limitation",
+        zone_name=zone_name,
+    )
+
+
+def calculate_geofencing_device_offline_insight(
+    devices: Optional[list] = None,
+) -> Optional[Insight]:
+    """Detect when a geofencing mobile device has location tracking disabled.
+
+    Args:
+        devices: List of dicts with keys: name, location_enabled (bool)
+
+    Returns:
+        Insight if any geofencing device is offline, None otherwise
+    """
+    if not devices:
+        return None
+
+    offline_devices = [
+        d.get("name", "Unknown")
+        for d in devices
+        if not d.get("location_enabled", True)
+    ]
+
+    if not offline_devices:
+        return None
+
+    devices_str = ", ".join(offline_devices[:3])
+    rec = (
+        f"Geofencing device(s) with location disabled: {devices_str} "
+        f"- home/away detection may be inaccurate"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="geofencing_offline",
+        zone_name=None,
+    )
+
+
+def calculate_api_usage_spike_insight(
+    current_hour_calls: Optional[int] = None,
+    avg_calls_per_hour: Optional[float] = None,
+) -> Optional[Insight]:
+    """Detect abnormal API usage spikes.
+
+    Triggers when current hour's calls significantly exceed the average.
+
+    Args:
+        current_hour_calls: Number of API calls in the current hour
+        avg_calls_per_hour: Average calls per hour from history
+
+    Returns:
+        Insight if usage spike detected, None otherwise
+    """
+    if current_hour_calls is None or avg_calls_per_hour is None:
+        return None
+    if avg_calls_per_hour <= 0:
+        return None
+
+    ratio = current_hour_calls / avg_calls_per_hour
+    if ratio < 2.0:
+        return None
+
+    rec = (
+        f"API usage spike: {current_hour_calls} calls this hour "
+        f"({ratio:.1f}x the average of {avg_calls_per_hour:.0f}/h) "
+        f"- check for automation loops or integration conflicts"
+    )
+
+    return Insight(
+        priority=InsightPriority.MEDIUM,
+        recommendation=rec,
+        insight_type="api_usage_spike",
+        zone_name=None,
+    )
+

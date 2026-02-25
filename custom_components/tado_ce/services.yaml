@@ -21,14 +21,14 @@ set_climate_timer:
           unit_of_measurement: "°C"
     time_period:
       name: Time Period
-      description: Duration before returning to schedule (format HH:MM:SS, e.g., "01:30:00" for 90 minutes).
-      required: true
+      description: Duration before returning to schedule (format HH:MM:SS, e.g., "01:30:00" for 90 minutes). Not required when using overlay mode.
+      required: false
       example: "01:30:00"
       selector:
         time:
     overlay:
       name: Overlay Type
-      description: When to end the override. Use 'next_time_block' to end at next schedule change. Don't set this and time_period together.
+      description: When to end the override. Use 'next_time_block' to end at next schedule change, or 'manual' for indefinite. When set, time_period is not required.
       required: false
       example: "next_time_block"
       selector:

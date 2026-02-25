@@ -31,6 +31,7 @@ from .data_loader import (
     get_zone_names as dl_get_zone_names, get_zone_types as dl_get_zone_types
 )
 from .immediate_refresh_handler import SIGNAL_ZONES_UPDATED
+from .sensor import _format_overlay_type, _format_zone_type
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -381,7 +382,7 @@ class TadoClimate(ClimateEntity):
     def extra_state_attributes(self):
         """Return extra state attributes."""
         attrs = {
-            "overlay_type": self._overlay_type,
+            "overlay_type": _format_overlay_type(self._overlay_type),
             "heating_power": self._heating_power,
             "zone_id": self._zone_id,
         }
@@ -1315,10 +1316,10 @@ class TadoACClimate(ClimateEntity):
     def extra_state_attributes(self):
         """Return extra state attributes."""
         return {
-            "overlay_type": self._overlay_type,
+            "overlay_type": _format_overlay_type(self._overlay_type),
             "ac_power_percentage": self._ac_power_percentage,
             "zone_id": self._zone_id,
-            "zone_type": "AIR_CONDITIONING",
+            "zone_type": _format_zone_type("AIR_CONDITIONING"),
         }
 
     def update(self):
@@ -1957,17 +1958,55 @@ class TadoACClimate(ClimateEntity):
             return True
         return False
 
-    async def async_set_timer(self, temperature: float, duration_minutes: int, mode: str = None) -> bool:
-        """Set AC with timer.
+    async def async_set_timer(self, temperature: float, duration_minutes: int = None, overlay: str = None) -> bool:
+        """Set AC with timer or overlay type.
+        
+        v2.3.0: Added overlay parameter for parity with TadoClimate (#152 - @mpartington).
+        When overlay='next_time_block', uses TADO_MODE termination (no timer needed).
+        When overlay='manual', uses MANUAL termination.
         
         v1.9.2: Added timeout protection for consistency.
         """
+        # v2.3.0: If overlay specified without duration, resolve termination here
+        if not duration_minutes and overlay:
+            overlay_upper = overlay.upper()
+            if overlay_upper == "NEXT_TIME_BLOCK":
+                # Use TADO_MODE termination directly via API
+                await self._check_bootstrap_reserve()
+                client = get_async_client(self.hass)
+                setting = {
+                    "type": "AIR_CONDITIONING",
+                    "power": "ON",
+                }
+                # Use current mode or default
+                if self._attr_hvac_mode and self._attr_hvac_mode not in (HVACMode.OFF, HVACMode.AUTO):
+                    setting["mode"] = HA_TO_TADO_HVAC_MODE.get(self._attr_hvac_mode, 'COOL')
+                else:
+                    setting["mode"] = "COOL"
+                if temperature:
+                    setting["temperature"] = {"celsius": temperature}
+                termination = {"type": "TADO_MODE"}
+                api_success = False
+                try:
+                    async with asyncio.timeout(10):
+                        api_success = await client.set_zone_overlay(self._zone_id, setting, termination)
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(f"AC TIMEOUT: {self._zone_name} set_timer API call timed out")
+                except Exception as e:
+                    _LOGGER.warning(f"AC ERROR: {self._zone_name} set_timer API call failed ({e})")
+                if api_success:
+                    _LOGGER.info(f"Set AC {self._zone_name} to {temperature}°C until next schedule block")
+                return api_success
+            elif overlay_upper == "MANUAL":
+                # Pass through to _async_set_ac_overlay with no duration (will use MANUAL)
+                pass  # Fall through - duration_minutes=None will trigger get_zone_overlay_termination
+        
         api_success = False
         try:
             async with asyncio.timeout(10):
                 api_success = await self._async_set_ac_overlay(
                     temperature=temperature,
-                    mode=mode,
+                    mode=None,
                     duration_minutes=duration_minutes
                 )
         except asyncio.TimeoutError:

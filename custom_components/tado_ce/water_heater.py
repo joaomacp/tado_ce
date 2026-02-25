@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .device_manager import get_zone_device_info
 from .data_loader import load_zones_file, load_zones_info_file, load_config_file
+from .sensor import _format_overlay_type
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
@@ -122,7 +123,7 @@ class TadoWaterHeater(WaterHeaterEntity):
     @property
     def extra_state_attributes(self):
         return {
-            "overlay_type": self._overlay_type,
+            "overlay_type": _format_overlay_type(self._overlay_type),
             "zone_id": self._zone_id,
         }
 

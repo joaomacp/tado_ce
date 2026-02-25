@@ -22,6 +22,7 @@ from .data_loader import (
     load_zones_file, load_zones_info_file, load_weather_file,
     load_config_file, load_ratelimit_file, load_api_call_history_file,
     load_outdoor_temp_history, save_outdoor_temp_history,
+    load_home_state_file, load_mobile_devices_file, load_schedules_file,
     get_zone_names as dl_get_zone_names
 )
 from .immediate_refresh_handler import SIGNAL_ZONES_UPDATED
@@ -29,6 +30,7 @@ from .insights_calculator import (
     calculate_mold_risk_recommendation,
     calculate_comfort_recommendation,
     calculate_condensation_recommendation,
+    calculate_heating_condensation_recommendation,
     calculate_historical_deviation_recommendation,
     calculate_confidence_recommendation,
     calculate_battery_recommendation,
@@ -50,6 +52,28 @@ from .insights_calculator import (
     classify_mold_risk_level,
     classify_comfort_level,
     calculate_calls_per_hour,
+    # v2.3.0: Expanded actionable insights
+    calculate_overlay_duration_insight,
+    calculate_frequent_override_insight,
+    calculate_heating_off_cold_room_insight,
+    calculate_early_start_disabled_insight,
+    calculate_poor_thermal_efficiency_insight,
+    calculate_schedule_gap_insight,
+    calculate_boiler_flow_anomaly_insight,
+    calculate_away_heating_active_insight,
+    calculate_home_all_off_insight,
+    calculate_solar_gain_insight,
+    calculate_solar_ac_load_insight,
+    calculate_frost_risk_insight,
+    calculate_heating_season_advisory_insight,
+    calculate_humidity_trend_insight,
+    calculate_device_limitation_insight,
+    calculate_geofencing_device_offline_insight,
+    calculate_api_usage_spike_insight,
+    aggregate_cross_zone_condensation,
+    calculate_cross_zone_efficiency_insight,
+    calculate_temperature_imbalance_insight,
+    calculate_humidity_imbalance_insight,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -106,6 +130,134 @@ def _format_window_type(window_type: str) -> str:
 def _format_comfort_model(comfort_model: str) -> str:
     """Convert internal comfort_model to user-friendly display value."""
     return COMFORT_MODEL_DISPLAY_MAP.get(comfort_model, comfort_model.title() if comfort_model else "Unknown")
+
+
+# Insight type display mapping (v2.3.0)
+INSIGHT_TYPE_DISPLAY_MAP = {
+    "mold_risk": "Mold Risk",
+    "comfort": "Comfort",
+    "battery": "Battery",
+    "connection": "Connection",
+    "window_predicted": "Open Window",
+    "condensation": "Condensation",
+    "preheat_timing": "Preheat Timing",
+    "schedule_deviation": "Schedule Deviation",
+    "heating_anomaly": "Heating Anomaly",
+    "cross_zone_mold": "Cross-Zone Mold",
+    "cross_zone_window": "Cross-Zone Open Window",
+    "cross_zone_condensation": "Cross-Zone Condensation",
+    "cross_zone_efficiency": "Cross-Zone Efficiency",
+    "api_quota_planning": "API Quota",
+    "weather_impact": "Weather Impact",
+    "overlay_duration": "Overlay Duration",
+    "schedule_gap": "Schedule Gap",
+    "frequent_override": "Frequent Override",
+    "away_heating": "Away Heating",
+    "home_all_off": "Home All Off",
+    "solar_gain": "Solar Gain",
+    "solar_ac_load": "Solar AC Load",
+    "frost_risk": "Frost Risk",
+    "heating_season": "Heating Season",
+    "heating_off_cold": "Heating Off Cold",
+    "boiler_flow_anomaly": "Boiler Flow Anomaly",
+    "early_start_disabled": "Early Start Disabled",
+    "thermal_efficiency": "Thermal Efficiency",
+    "temp_imbalance": "Temperature Imbalance",
+    "humidity_imbalance": "Humidity Imbalance",
+    "humidity_trend": "Humidity Trend",
+    "device_limitation": "Device Limitation",
+    "geofencing_offline": "Geofencing Offline",
+    "api_usage_spike": "API Usage Spike",
+}
+
+
+def _format_insight_type(insight_type: str) -> str:
+    """Convert internal insight_type to user-friendly display value."""
+    return INSIGHT_TYPE_DISPLAY_MAP.get(insight_type, insight_type.replace("_", " ").title())
+
+
+def _format_priority(priority: str) -> str:
+    """Convert internal priority to Title Case display value."""
+    return priority.title() if priority else "None"
+
+
+# API status display mapping (v2.3.0)
+API_STATUS_DISPLAY_MAP = {
+    "ok": "OK",
+    "warning": "Warning",
+    "rate_limited": "Rate Limited",
+}
+
+
+def _format_api_status(status: str) -> str:
+    """Convert internal API status to user-friendly display value."""
+    if not status:
+        return "Unknown"
+    return API_STATUS_DISPLAY_MAP.get(status, status.replace("_", " ").title())
+
+
+# Overlay type display mapping (v2.3.0)
+OVERLAY_TYPE_DISPLAY_MAP = {
+    "MANUAL": "Manual",
+    "TIMER": "Timer",
+    "NEXT_TIME_BLOCK": "Next Time Block",
+    "TADO_MODE": "Tado Mode",
+}
+
+
+def _format_overlay_type(overlay_type) -> str:
+    """Convert internal overlay_type to user-friendly display value."""
+    if overlay_type is None:
+        return "None"
+    return OVERLAY_TYPE_DISPLAY_MAP.get(overlay_type, str(overlay_type).replace("_", " ").title())
+
+
+# Confidence display mapping (v2.3.0)
+CONFIDENCE_DISPLAY_MAP = {
+    "no_schedule": "No Schedule",
+    "insufficient_data": "Insufficient Data",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "none": "None",
+    "unknown": "Unknown",
+}
+
+
+def _format_confidence(confidence: str) -> str:
+    """Convert internal confidence to user-friendly display value."""
+    if not confidence:
+        return "Unknown"
+    return CONFIDENCE_DISPLAY_MAP.get(confidence, confidence.replace("_", " ").title())
+
+
+# Tado mode display mapping (v2.3.0)
+TADO_MODE_DISPLAY_MAP = {
+    "HOME": "Home",
+    "AWAY": "Away",
+}
+
+
+def _format_tado_mode(mode: str) -> str:
+    """Convert internal tado mode to user-friendly display value."""
+    if not mode:
+        return "Unknown"
+    return TADO_MODE_DISPLAY_MAP.get(mode, mode.title())
+
+
+# Data source display mapping (v2.3.0)
+DATA_SOURCE_DISPLAY_MAP = {
+    "home_state": "Home State",
+    "zones": "Zones",
+}
+
+
+def _format_data_source(source: str) -> str:
+    """Convert internal data source to user-friendly display value."""
+    if not source:
+        return "Unknown"
+    return DATA_SOURCE_DISPLAY_MAP.get(source, source.replace("_", " ").title())
+
 
 # Cached home_id to avoid blocking calls in event loop
 _CACHED_HOME_ID = None
@@ -223,6 +375,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
                             TadoMoldRiskSensor(zone_id, zone_name, zone_type),
                             TadoMoldRiskPercentageSensor(zone_id, zone_name, zone_type),
                             TadoComfortLevelSensor(zone_id, zone_name, zone_type),
+                            TadoCondensationRiskSensor(zone_id, zone_name, zone_type),
                             # v2.2.0: Calibration sensors (#118)
                             TadoSurfaceTemperatureSensor(zone_id, zone_name, zone_type),
                             TadoDewPointSensor(zone_id, zone_name, zone_type),
@@ -819,7 +972,7 @@ class TadoApiStatusSensor(SensorEntity):
             # Use data_loader for per-home file support
             data = load_ratelimit_file()
             if data:
-                self._attr_native_value = data.get("status", "unknown")
+                self._attr_native_value = _format_api_status(data.get("status", "unknown"))
                 self._remaining_calls = data.get("remaining")
                 self._total_calls = data.get("limit")
                 self._reset_time = data.get("reset_human")
@@ -2314,7 +2467,7 @@ class TadoPreheatAdvisorSensor(TadoBaseSensor):
             "target_time": self._target_time,
             "duration_minutes": self._duration_minutes,
             "heating_rate": self._heating_rate,
-            "confidence": self._confidence,
+            "confidence": _format_confidence(self._confidence),
             "summary": self._summary,
             "zone_type": _format_zone_type(self._zone_type),
         }
@@ -3256,21 +3409,24 @@ class TadoMoldRiskPercentageSensor(TadoBaseSensor):
 
 
 class TadoCondensationRiskSensor(TadoBaseSensor):
-    """Condensation risk sensor for AC zones.
+    """Condensation risk sensor for all climate zones.
     
-    v2.1.0: Calculates condensation risk on window exterior when AC is running.
-    When AC cools the room, the window's outer surface can drop below outdoor dew point,
-    causing condensation on the outside of the window.
+    v2.1.0: AC zones — condensation on window exterior when AC cools room.
+    v2.3.0: HEATING zones — condensation on window interior when indoor
+            humidity is high and window inner surface drops below indoor dew point.
     
     Uses per-zone window_type configuration for U-value.
     
-    Risk Levels (based on margin between window outer surface temp and outdoor dew point):
-    - Critical: <2°C margin (condensation likely)
-    - High: 2-4°C margin (elevated risk)
-    - Medium: 4-6°C margin (moderate risk)
-    - Low: >6°C margin (safe)
+    Heating Risk Levels (aligned with Mold Risk — accounts for cold spots):
+    - None: >7°C margin (safe)
+    - Low: 5-7°C margin (monitor)
+    - Medium: 3-5°C margin (condensation likely on coldest spots)
+    - High: 1-3°C margin (condensation actively forming)
+    - Critical: ≤1°C margin (heavy condensation)
     
-    State: Risk level text (Critical/High/Medium/Low)
+    AC zones use the original thresholds (Critical <2, High 2-4, Medium 4-6, Low >6).
+    
+    State: Risk level text (Critical/High/Medium/Low/None)
     """
     
     def __init__(self, zone_id: str, zone_name: str, zone_type: str = "AIR_CONDITIONING"):
@@ -3280,19 +3436,39 @@ class TadoCondensationRiskSensor(TadoBaseSensor):
         self._attr_icon = "mdi:water-alert"
         self._attr_translation_key = "condensation_risk"
         
-        # Attributes
+        # Common attributes
         self._room_temp: float | None = None
         self._outdoor_temp: float | None = None
-        self._outdoor_humidity: float | None = None
-        self._outdoor_dew_point: float | None = None
-        self._window_outer_surface_temp: float | None = None
         self._margin: float | None = None
         self._window_type: str = "double_pane"
         self._u_value: float | None = None
         self._recommendation: str = ""  # v2.2.0: Actionable recommendation
+        
+        # AC-specific attributes
+        self._outdoor_humidity: float | None = None
+        self._outdoor_dew_point: float | None = None
+        self._window_outer_surface_temp: float | None = None
+        
+        # Heating-specific attributes (v2.3.0)
+        self._indoor_humidity: float | None = None
+        self._indoor_dew_point: float | None = None
+        self._surface_temperature: float | None = None
     
     @property
     def extra_state_attributes(self):
+        if self._zone_type == "HEATING":
+            return {
+                "room_temperature": self._room_temp,
+                "humidity": self._indoor_humidity,
+                "indoor_dew_point": self._indoor_dew_point,
+                "surface_temperature": self._surface_temperature,
+                "outdoor_temperature": self._outdoor_temp,
+                "margin": self._margin,
+                "window_type": _format_window_type(self._window_type),
+                "u_value": self._u_value,
+                "zone_type": _format_zone_type(self._zone_type),
+                "recommendation": self._recommendation,
+            }
         return {
             "room_temperature": self._room_temp,
             "outdoor_temperature": self._outdoor_temp,
@@ -3318,53 +3494,34 @@ class TadoCondensationRiskSensor(TadoBaseSensor):
         return "mdi:check-circle"
     
     def update(self):
-        """Update condensation risk based on indoor/outdoor temps and outdoor humidity.
-        
-        v2.1.0: Calculates window outer surface temperature and compares to outdoor dew point.
+        """Update condensation risk based on zone type.
+
+        v2.1.0: AC zones — outdoor dew point vs window outer surface temp.
+        v2.3.0: HEATING zones — indoor dew point vs window inner surface temp.
         """
         try:
             zone_data = self._get_zone_data()
             if not zone_data:
                 self._attr_available = False
                 return
-            
-            # Get room temperature
+
+            # Get room temperature (common to both zone types)
             sensor_data = zone_data.get('sensorDataPoints') or {}
             room_temp = (sensor_data.get('insideTemperature') or {}).get('celsius')
             if room_temp is None:
                 self._attr_available = False
                 return
-            
+
             self._room_temp = room_temp
-            
+
             # Get config_manager and zone_config_manager
             config_manager = self.hass.data.get(DOMAIN, {}).get('config_manager')
             zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
-            
+
             if not config_manager:
                 self._attr_available = False
                 return
-            
-            # Get outdoor temperature
-            outdoor_entity = config_manager.get_outdoor_temp_entity()
-            if not outdoor_entity:
-                self._attr_available = False
-                return
-            
-            self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity)
-            if self._outdoor_temp is None:
-                self._attr_available = False
-                return
-            
-            # Get outdoor humidity (from weather entity)
-            self._outdoor_humidity = self._get_outdoor_humidity(outdoor_entity)
-            if self._outdoor_humidity is None:
-                self._attr_available = False
-                return
-            
-            # Calculate outdoor dew point
-            self._outdoor_dew_point = _calculate_dew_point(self._outdoor_temp, self._outdoor_humidity)
-            
+
             # Get window type from per-zone config or global config
             if zone_config_manager:
                 self._window_type = zone_config_manager.get_zone_value(
@@ -3375,48 +3532,149 @@ class TadoCondensationRiskSensor(TadoBaseSensor):
                 self._window_type = config_manager.get_mold_risk_window_type()
                 from .const import WINDOW_U_VALUES, DEFAULT_WINDOW_TYPE
                 self._u_value = WINDOW_U_VALUES.get(self._window_type, WINDOW_U_VALUES[DEFAULT_WINDOW_TYPE])
-            
-            # Calculate window outer surface temperature
-            # When AC cools the room, the window's outer surface is between room temp and outdoor temp
-            # Using simplified heat transfer: T_outer = T_outdoor - (T_outdoor - T_room) * factor
-            # The factor depends on U-value (higher U = more heat transfer = outer surface closer to room temp)
-            self._window_outer_surface_temp = _calculate_surface_temperature(
-                self._outdoor_temp, self._room_temp, self._u_value
-            )
-            
-            # Calculate margin (difference between window outer surface temp and outdoor dew point)
-            self._margin = round(self._window_outer_surface_temp - self._outdoor_dew_point, 1)
-            
-            # Determine risk level (tighter margins for condensation vs mold)
-            if self._margin < 2:
-                self._attr_native_value = "Critical"
-            elif self._margin < 4:
-                self._attr_native_value = "High"
-            elif self._margin < 6:
-                self._attr_native_value = "Medium"
+
+            if self._zone_type == "HEATING":
+                self._update_heating(sensor_data, config_manager)
             else:
-                self._attr_native_value = "Low"
-            
-            # v2.2.0: Calculate SMART actionable recommendation
-            # Get AC setpoint from zone data
-            ac_setpoint = None
-            if zone_data:
-                setting = zone_data.get('setting') or {}
-                ac_setpoint = (setting.get('temperature') or {}).get('celsius')
+                self._update_ac(config_manager)
 
-            self._recommendation = calculate_condensation_recommendation(
-                risk_level=self._attr_native_value,
-                zone_name=self._zone_name,
-                margin=self._margin,
-                ac_setpoint=ac_setpoint,
-                current_temp=self._room_temp
-            )
-
-            self._attr_available = True
-            
         except Exception as e:
             _LOGGER.debug(f"Failed to update condensation risk for zone {self._zone_id}: {e}")
             self._attr_available = False
+
+    def _update_heating(self, sensor_data: dict, config_manager) -> None:
+        """Update condensation risk for HEATING zones.
+
+        Physics: indoor humidity → indoor dew point → compare with window
+        inner surface temperature. Condensation forms on the INSIDE of
+        windows when surface temp drops below indoor dew point.
+        """
+        # Get indoor humidity from zone sensor data
+        humidity = (sensor_data.get('humidity') or {}).get('percentage')
+        if humidity is None:
+            self._attr_available = False
+            return
+
+        self._indoor_humidity = humidity
+
+        # Calculate indoor dew point
+        self._indoor_dew_point = _calculate_dew_point(self._room_temp, humidity)
+
+        # Get outdoor temperature for surface temp calculation
+        # Fallback to room temp if outdoor not available (same as Mold Risk Tier 2)
+        outdoor_entity = config_manager.get_outdoor_temp_entity()
+        outdoor_temp = None
+        if outdoor_entity:
+            outdoor_temp = self._get_outdoor_temperature(outdoor_entity)
+        self._outdoor_temp = outdoor_temp
+
+        effective_outdoor = outdoor_temp if outdoor_temp is not None else self._room_temp
+
+        # Calculate window inner surface temperature (same formula as Mold Risk)
+        self._surface_temperature = _calculate_surface_temperature(
+            self._room_temp, effective_outdoor, self._u_value
+        )
+
+        # Apply surface_temp_offset if configured
+        zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
+        if zone_config_manager:
+            offset = zone_config_manager.get_zone_value(
+                self._zone_id, "surface_temp_offset", 0.0
+            )
+            if offset:
+                self._surface_temperature = round(self._surface_temperature + float(offset), 1)
+
+        # Margin = surface_temp - indoor_dew_point
+        # Positive = safe, Negative = condensation occurring
+        self._margin = round(self._surface_temperature - self._indoor_dew_point, 1)
+
+        # Heating zone risk levels (aligned with Mold Risk thresholds)
+        # Real-world condensation occurs at higher margins than theoretical
+        # because window edges/corners are 3-5°C colder than calculated average
+        if self._margin <= 1:
+            self._attr_native_value = "Critical"
+        elif self._margin <= 3:
+            self._attr_native_value = "High"
+        elif self._margin <= 5:
+            self._attr_native_value = "Medium"
+        elif self._margin <= 7:
+            self._attr_native_value = "Low"
+        else:
+            self._attr_native_value = "None"
+
+        # Calculate SMART actionable recommendation
+        self._recommendation = calculate_heating_condensation_recommendation(
+            risk_level=self._attr_native_value,
+            zone_name=self._zone_name,
+            margin=self._margin,
+            humidity=self._indoor_humidity,
+            surface_temp=self._surface_temperature,
+            dew_point=self._indoor_dew_point,
+        )
+
+        self._attr_available = True
+
+    def _update_ac(self, config_manager) -> None:
+        """Update condensation risk for AC zones (unchanged from v2.1.0).
+
+        Physics: outdoor humidity → outdoor dew point → compare with window
+        outer surface temperature. Condensation forms on the OUTSIDE of
+        windows when AC cools the room.
+        """
+        # Get outdoor temperature
+        outdoor_entity = config_manager.get_outdoor_temp_entity()
+        if not outdoor_entity:
+            self._attr_available = False
+            return
+
+        self._outdoor_temp = self._get_outdoor_temperature(outdoor_entity)
+        if self._outdoor_temp is None:
+            self._attr_available = False
+            return
+
+        # Get outdoor humidity (from weather entity)
+        self._outdoor_humidity = self._get_outdoor_humidity(outdoor_entity)
+        if self._outdoor_humidity is None:
+            self._attr_available = False
+            return
+
+        # Calculate outdoor dew point
+        self._outdoor_dew_point = _calculate_dew_point(self._outdoor_temp, self._outdoor_humidity)
+
+        # Calculate window outer surface temperature
+        self._window_outer_surface_temp = _calculate_surface_temperature(
+            self._outdoor_temp, self._room_temp, self._u_value
+        )
+
+        # Calculate margin (difference between window outer surface temp and outdoor dew point)
+        self._margin = round(self._window_outer_surface_temp - self._outdoor_dew_point, 1)
+
+        # AC zone risk levels (original thresholds)
+        if self._margin < 2:
+            self._attr_native_value = "Critical"
+        elif self._margin < 4:
+            self._attr_native_value = "High"
+        elif self._margin < 6:
+            self._attr_native_value = "Medium"
+        else:
+            self._attr_native_value = "Low"
+
+        # v2.2.0: Calculate SMART actionable recommendation
+        zone_data = self._get_zone_data()
+        ac_setpoint = None
+        if zone_data:
+            setting = zone_data.get('setting') or {}
+            ac_setpoint = (setting.get('temperature') or {}).get('celsius')
+
+        self._recommendation = calculate_condensation_recommendation(
+            risk_level=self._attr_native_value,
+            zone_name=self._zone_name,
+            margin=self._margin,
+            ac_setpoint=ac_setpoint,
+            current_temp=self._room_temp,
+        )
+
+        self._attr_available = True
     
     def _get_outdoor_temperature(self, entity_id: str) -> float | None:
         """Get outdoor temperature from configured entity."""
@@ -4338,6 +4596,8 @@ class TadoHomeInsightsSensor(SensorEntity):
         # Persisted to outdoor_temp_history.json - survives HA restarts
         self._outdoor_temp_history: list = []
         self._outdoor_temp_loaded: bool = False  # Lazy-load on first update
+        # v2.3.0: Per-zone humidity history for trend detection (in-memory only)
+        self._humidity_histories: dict[str, list] = {}
 
     @property
     def icon(self):
@@ -4356,11 +4616,10 @@ class TadoHomeInsightsSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         return {
-            "critical_count": self._aggregated.get("critical_count", 0),
-            "high_count": self._aggregated.get("high_count", 0),
-            "medium_count": self._aggregated.get("medium_count", 0),
-            "low_count": self._aggregated.get("low_count", 0),
-            "top_priority": self._aggregated.get("top_priority", "none"),
+            "summary": self._aggregated.get("summary", ""),
+            "actions_needed": self._aggregated.get("actions_needed", []),
+            "zones_ok": self._aggregated.get("zones_ok", []),
+            "top_priority": _format_priority(self._aggregated.get("top_priority", "none")),
             "top_recommendation": self._aggregated.get("top_recommendation", ""),
             "zones_with_issues": self._aggregated.get("zones_with_issues", []),
             "cross_zone_insights": self._aggregated.get("cross_zone_insights", []),
@@ -4456,6 +4715,21 @@ class TadoHomeInsightsSensor(SensorEntity):
                 # --- Window predicted insight (from binary sensor state) ---
                 if self.hass:
                     slug = zone_name.lower().replace(" ", "_")
+
+                    # --- Condensation risk insight (v2.3.0) ---
+                    cond_entity = f"sensor.{slug}_condensation_risk"
+                    cond_state = self.hass.states.get(cond_entity)
+                    if cond_state and cond_state.state not in ("unavailable", "unknown", "None", "Low"):
+                        cond_rec = (cond_state.attributes or {}).get("recommendation", "")
+                        if not cond_rec:
+                            cond_rec = f"{zone_name}: Condensation risk detected"
+                        insights.append(Insight(
+                            priority=get_insight_priority("condensation", cond_state.state.lower()),
+                            recommendation=cond_rec,
+                            insight_type="condensation",
+                            zone_name=zone_name,
+                        ))
+
                     wp_entity = f"binary_sensor.{slug}_window_predicted"
                     wp_state = self.hass.states.get(wp_entity)
                     if wp_state and wp_state.state == "on":
@@ -4526,6 +4800,180 @@ class TadoHomeInsightsSensor(SensorEntity):
                                     self._anomaly_start_times.pop(zone_name, None)
                         except (ValueError, TypeError):
                             pass
+
+                # --- v2.3.0: Overlay duration (permanent overlay detection) ---
+                overlay_type = zone_data.get("overlayType")
+                next_schedule_change = zone_data.get("nextScheduleChange")
+                insight = calculate_overlay_duration_insight(
+                    overlay_type=overlay_type,
+                    next_schedule_change=next_schedule_change,
+                    zone_name=zone_name,
+                )
+                if insight:
+                    insights.append(insight)
+
+                # --- v2.3.0: Frequent override ---
+                insight = calculate_frequent_override_insight(
+                    overlay_type=overlay_type,
+                    zone_name=zone_name,
+                )
+                if insight:
+                    insights.append(insight)
+
+                # --- v2.3.0: Heating off + cold room ---
+                setting = zone_data.get("setting") or {}
+                power_state = setting.get("power")
+                target_temp = (setting.get("temperature") or {}).get("celsius")
+                insight = calculate_heating_off_cold_room_insight(
+                    power_state=power_state,
+                    current_temp=inside_temp,
+                    target_temp=target_temp,
+                    zone_name=zone_name,
+                )
+                if insight:
+                    insights.append(insight)
+
+                # --- v2.3.0: Early start disabled + long preheat ---
+                if self.hass:
+                    slug = zone_name.lower().replace(" ", "_")
+                    es_state = self.hass.states.get(f"switch.{slug}_early_start")
+                    ph_state = self.hass.states.get(f"sensor.{slug}_preheat_time")
+                    early_start_on = True
+                    if es_state and es_state.state == "off":
+                        early_start_on = False
+                    ph_min = None
+                    if ph_state and ph_state.state not in ("unavailable", "unknown"):
+                        try:
+                            ph_min = float(ph_state.state)
+                        except (ValueError, TypeError):
+                            pass
+                    insight = calculate_early_start_disabled_insight(
+                        early_start_enabled=early_start_on,
+                        preheat_time_minutes=ph_min,
+                        zone_name=zone_name,
+                    )
+                    if insight:
+                        insights.append(insight)
+
+                # --- v2.3.0: Poor thermal efficiency ---
+                if self.hass:
+                    slug = zone_name.lower().replace(" ", "_")
+                    ti_state = self.hass.states.get(f"sensor.{slug}_thermal_inertia")
+                    hr_state = self.hass.states.get(f"sensor.{slug}_avg_heating_rate")
+                    conf_state = self.hass.states.get(f"sensor.{slug}_analysis_confidence")
+                    ti_val = None
+                    hr_val = None
+                    conf_val = None
+                    for st, ref in [(ti_state, "ti_val"), (hr_state, "hr_val"), (conf_state, "conf_val")]:
+                        if st and st.state not in ("unavailable", "unknown"):
+                            try:
+                                val = float(st.state)
+                                if ref == "ti_val":
+                                    ti_val = val
+                                elif ref == "hr_val":
+                                    hr_val = val
+                                else:
+                                    conf_val = val
+                            except (ValueError, TypeError):
+                                pass
+                    insight = calculate_poor_thermal_efficiency_insight(
+                        thermal_inertia=ti_val,
+                        heating_rate=hr_val,
+                        confidence_score=conf_val,
+                        zone_name=zone_name,
+                    )
+                    if insight:
+                        insights.append(insight)
+
+                # --- v2.3.0: Schedule gap ---
+                schedules = load_schedules_file()
+                if schedules and inside_temp is not None:
+                    zone_schedule = schedules.get(zone_id)
+                    if zone_schedule:
+                        # Find longest OFF period and next target
+                        raw_blocks = zone_schedule.get("blocks") or zone_schedule.get("schedule", [])
+                        # v2.3.0: Handle dict format (e.g. {"MONDAY_TO_SUNDAY": [...]})
+                        if isinstance(raw_blocks, dict):
+                            blocks = [b for day_blocks in raw_blocks.values() for b in day_blocks]
+                        else:
+                            blocks = raw_blocks
+                        next_target = (setting.get("temperature") or {}).get("celsius")
+                        # Calculate longest OFF gap from schedule blocks
+                        longest_off = None
+                        if blocks:
+                            off_durations = []
+                            for block in blocks:
+                                block_setting = block.get("setting") or {}
+                                if block_setting.get("power") == "OFF":
+                                    start_str = block.get("start", "")
+                                    end_str = block.get("end", "")
+                                    if start_str and end_str:
+                                        try:
+                                            # Parse HH:MM format
+                                            sh, sm = int(start_str.split(":")[0]), int(start_str.split(":")[1])
+                                            eh, em = int(end_str.split(":")[0]), int(end_str.split(":")[1])
+                                            dur = (eh * 60 + em) - (sh * 60 + sm)
+                                            if dur < 0:
+                                                dur += 24 * 60
+                                            off_durations.append(dur / 60.0)
+                                        except (ValueError, IndexError):
+                                            pass
+                            if off_durations:
+                                longest_off = max(off_durations)
+                        insight = calculate_schedule_gap_insight(
+                            schedule_blocks=blocks if blocks else None,
+                            current_temp=inside_temp,
+                            next_target_temp=next_target,
+                            longest_off_hours=longest_off,
+                            zone_name=zone_name,
+                        )
+                        if insight:
+                            insights.append(insight)
+
+                # --- v2.3.0: Boiler flow anomaly ---
+                activity = zone_data.get("activityDataPoints") or {}
+                flow_data = activity.get("boilerFlowTemperature") or {}
+                flow_temp = flow_data.get("celsius")
+                hp_data = activity.get("heatingPower") or {}
+                hp_pct = hp_data.get("percentage")
+                if flow_temp is not None:
+                    insight = calculate_boiler_flow_anomaly_insight(
+                        flow_temp=flow_temp,
+                        heating_power_pct=hp_pct,
+                        zone_name=zone_name,
+                    )
+                    if insight:
+                        insights.append(insight)
+
+                # --- v2.3.0: Device limitation ---
+                if zones_info:
+                    zone_info = next((z for z in zones_info if str(z.get("id")) == zone_id), None)
+                    if zone_info:
+                        has_humidity = humidity is not None
+                        has_temp = inside_temp is not None
+                        insight = calculate_device_limitation_insight(
+                            has_humidity_sensor=has_humidity,
+                            has_temperature_sensor=has_temp,
+                            zone_name=zone_name,
+                        )
+                        if insight:
+                            insights.append(insight)
+
+                # --- v2.3.0: Humidity trend ---
+                if humidity is not None:
+                    if zone_name not in self._humidity_histories:
+                        self._humidity_histories[zone_name] = []
+                    self._humidity_histories[zone_name].append(humidity)
+                    # Trim to max 48 readings (~24h at 30min intervals)
+                    if len(self._humidity_histories[zone_name]) > 48:
+                        self._humidity_histories[zone_name] = self._humidity_histories[zone_name][-48:]
+                    insight = calculate_humidity_trend_insight(
+                        current_humidity=humidity,
+                        humidity_history=self._humidity_histories[zone_name],
+                        zone_name=zone_name,
+                    )
+                    if insight:
+                        insights.append(insight)
 
                 if insights:
                     zone_insights[zone_name] = insights
@@ -4628,6 +5076,65 @@ class TadoHomeInsightsSensor(SensorEntity):
                 if window_insight:
                     cross_insights.append(window_insight)
 
+            # --- v2.3.0: Cross-zone condensation aggregation ---
+            if self.hass and zones_info:
+                zone_cond_states: dict[str, str] = {}
+                for z in zones_info:
+                    z_name = z.get("name", f"Zone {z.get('id')}")
+                    slug = z_name.lower().replace(" ", "_")
+                    cond_entity = f"sensor.{slug}_condensation_risk"
+                    cond_state = self.hass.states.get(cond_entity)
+                    if cond_state and cond_state.state not in ("unavailable", "unknown"):
+                        zone_cond_states[z_name] = cond_state.state
+                cond_insight = aggregate_cross_zone_condensation(zone_cond_states)
+                if cond_insight:
+                    cross_insights.append(cond_insight)
+
+            # --- v2.3.0: Cross-zone efficiency comparison ---
+            if self.hass and zones_info:
+                zone_heating_rates: dict[str, float] = {}
+                for z in zones_info:
+                    z_name = z.get("name", f"Zone {z.get('id')}")
+                    slug = z_name.lower().replace(" ", "_")
+                    hr_entity = f"sensor.{slug}_avg_heating_rate"
+                    hr_state = self.hass.states.get(hr_entity)
+                    if hr_state and hr_state.state not in ("unavailable", "unknown"):
+                        try:
+                            zone_heating_rates[z_name] = float(hr_state.state)
+                        except (ValueError, TypeError):
+                            pass
+                eff_insight = calculate_cross_zone_efficiency_insight(zone_heating_rates)
+                if eff_insight:
+                    cross_insights.append(eff_insight)
+
+            # --- v2.3.0: Temperature imbalance ---
+            if zones_data:
+                zone_temps: dict[str, float] = {}
+                for zid, zd in zone_states.items():
+                    z_name = zone_name_map.get(zid, f"Zone {zid}")
+                    s = zd.get("setting") or {}
+                    if s.get("power") == "ON":
+                        sd = zd.get("sensorDataPoints") or {}
+                        t = (sd.get("insideTemperature") or {}).get("celsius")
+                        if t is not None:
+                            zone_temps[z_name] = t
+                temp_insight = calculate_temperature_imbalance_insight(zone_temps)
+                if temp_insight:
+                    cross_insights.append(temp_insight)
+
+            # --- v2.3.0: Humidity imbalance ---
+            if zones_data:
+                zone_hums: dict[str, float] = {}
+                for zid, zd in zone_states.items():
+                    z_name = zone_name_map.get(zid, f"Zone {zid}")
+                    sd = zd.get("sensorDataPoints") or {}
+                    h = (sd.get("humidity") or {}).get("percentage")
+                    if h is not None:
+                        zone_hums[z_name] = h
+                hum_insight = calculate_humidity_imbalance_insight(zone_hums)
+                if hum_insight:
+                    cross_insights.append(hum_insight)
+
         except Exception as e:
             _LOGGER.debug(f"Failed to collect cross-zone insights: {e}")
 
@@ -4700,6 +5207,166 @@ class TadoHomeInsightsSensor(SensorEntity):
                     if insight:
                         hub_insights.append(insight)
 
+                    # --- v2.3.0: Frost risk ---
+                    frost_insight = calculate_frost_risk_insight(outdoor_temp=outdoor_temp)
+                    if frost_insight:
+                        hub_insights.append(frost_insight)
+
+                    # --- v2.3.0: Heating season advisory ---
+                    if len(self._outdoor_temp_history) >= 96:
+                        mid = len(self._outdoor_temp_history) // 2
+                        prev_half = self._outdoor_temp_history[:mid]
+                        curr_half = self._outdoor_temp_history[mid:]
+                        prev_avg = sum(prev_half) / len(prev_half)
+                        curr_avg = sum(curr_half) / len(curr_half)
+                        season_insight = calculate_heating_season_advisory_insight(
+                            current_avg_7d=curr_avg,
+                            previous_avg_7d=prev_avg,
+                        )
+                        if season_insight:
+                            hub_insights.append(season_insight)
+
+                    # --- v2.3.0: Solar gain / Solar AC load ---
+                    solar_pct = (weather.get("solarIntensity") or {}).get("percentage")
+                    if solar_pct is not None:
+                        zones_data = load_zones_file()
+                        zones_info = load_zones_info_file()
+                        if zones_data and zones_info:
+                            zone_states = zones_data.get("zoneStates") or {}
+                            zone_name_map: dict[str, str] = {}
+                            for z in zones_info:
+                                zone_name_map[str(z.get("id"))] = z.get("name", f"Zone {z.get('id')}")
+
+                            heating_active = []
+                            ac_active = []
+                            for zid, zd in zone_states.items():
+                                s = zd.get("setting") or {}
+                                if s.get("power") != "ON":
+                                    continue
+                                z_name = zone_name_map.get(zid, f"Zone {zid}")
+                                hp = (zd.get("activityDataPoints") or {}).get("heatingPower") or {}
+                                pct = hp.get("percentage", 0)
+                                if s.get("type") == "HEATING" and pct > 0:
+                                    heating_active.append({"zone_name": z_name, "power_pct": pct})
+                                elif s.get("type") == "AIR_CONDITIONING":
+                                    ac_active.append({"zone_name": z_name})
+
+                            sg_insight = calculate_solar_gain_insight(
+                                solar_intensity_pct=solar_pct,
+                                heating_zones_active=heating_active if heating_active else None,
+                            )
+                            if sg_insight:
+                                hub_insights.append(sg_insight)
+
+                            sac_insight = calculate_solar_ac_load_insight(
+                                solar_intensity_pct=solar_pct,
+                                ac_zones_active=ac_active if ac_active else None,
+                            )
+                            if sac_insight:
+                                hub_insights.append(sac_insight)
+
+            # --- v2.3.0: Away + heating active / Home + all off ---
+            home_state_data = load_home_state_file()
+            if home_state_data:
+                presence = home_state_data.get("presence")
+                zones_data = load_zones_file()
+                zones_info = load_zones_info_file()
+                if zones_data and zones_info:
+                    zone_states = zones_data.get("zoneStates") or {}
+                    zone_name_map: dict[str, str] = {}
+                    for z in zones_info:
+                        zone_name_map[str(z.get("id"))] = z.get("name", f"Zone {z.get('id')}")
+
+                    active_zones = []
+                    all_off = True
+                    coldest_name = None
+                    coldest_temp = None
+                    coldest_target = None
+                    for zid, zd in zone_states.items():
+                        s = zd.get("setting") or {}
+                        if s.get("type") == "HOT_WATER":
+                            continue
+                        if s.get("power") == "ON":
+                            all_off = False
+                            hp = (zd.get("activityDataPoints") or {}).get("heatingPower") or {}
+                            pct = hp.get("percentage", 0)
+                            z_name = zone_name_map.get(zid, f"Zone {zid}")
+                            if pct > 0:
+                                active_zones.append({
+                                    "zone_name": z_name,
+                                    "power_pct": pct,
+                                    "zone_type": s.get("type", "HEATING"),
+                                })
+                        sd = zd.get("sensorDataPoints") or {}
+                        t = (sd.get("insideTemperature") or {}).get("celsius")
+                        tgt = (s.get("temperature") or {}).get("celsius")
+                        if t is not None:
+                            z_name = zone_name_map.get(zid, f"Zone {zid}")
+                            if coldest_temp is None or t < coldest_temp:
+                                coldest_temp = t
+                                coldest_name = z_name
+                                coldest_target = tgt
+
+                    away_insight = calculate_away_heating_active_insight(
+                        presence=presence,
+                        active_zones=active_zones if active_zones else None,
+                    )
+                    if away_insight:
+                        hub_insights.append(away_insight)
+
+                    home_off_insight = calculate_home_all_off_insight(
+                        presence=presence,
+                        all_zones_off=all_off,
+                        coldest_zone_name=coldest_name,
+                        coldest_zone_temp=coldest_temp,
+                        coldest_zone_target=coldest_target,
+                    )
+                    if home_off_insight:
+                        hub_insights.append(home_off_insight)
+
+            # --- v2.3.0: Geofencing device offline ---
+            mobile_devices = load_mobile_devices_file()
+            if mobile_devices:
+                device_list = []
+                for md in mobile_devices:
+                    settings = md.get("settings") or {}
+                    device_list.append({
+                        "name": md.get("name", "Unknown"),
+                        "location_enabled": settings.get("geoTrackingEnabled", True),
+                    })
+                geo_insight = calculate_geofencing_device_offline_insight(devices=device_list)
+                if geo_insight:
+                    hub_insights.append(geo_insight)
+
+            # --- v2.3.0: API usage spike ---
+            history_raw = load_api_call_history_file()
+            if history_raw and isinstance(history_raw, dict):
+                all_calls = [call for calls in history_raw.values() for call in calls]
+                cph = calculate_calls_per_hour(all_calls) if all_calls else None
+                # Count calls in current hour
+                now = datetime.now()
+                current_hour_start = now.replace(minute=0, second=0, microsecond=0)
+                current_hour_calls = 0
+                today_key = now.strftime("%Y-%m-%d")
+                today_calls = history_raw.get(today_key, [])
+                for call in today_calls:
+                    ts = call.get("timestamp") or call.get("time", "")
+                    if ts:
+                        try:
+                            call_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                            # Compare hour only
+                            if call_time.hour == now.hour:
+                                current_hour_calls += 1
+                        except (ValueError, TypeError):
+                            pass
+                if cph is not None and current_hour_calls > 0:
+                    spike_insight = calculate_api_usage_spike_insight(
+                        current_hour_calls=current_hour_calls,
+                        avg_calls_per_hour=cph,
+                    )
+                    if spike_insight:
+                        hub_insights.append(spike_insight)
+
         except Exception as e:
             _LOGGER.debug(f"Failed to collect hub insights: {e}")
 
@@ -4720,26 +5387,18 @@ class TadoHomeInsightsSensor(SensorEntity):
             if hub:
                 zone_insights["_hub"] = hub
 
+            # Merge cross-zone insights into zone_insights under "_cross_zone" key
+            # so aggregate_home_insights groups them into actions_needed too
+            if cross_zone:
+                zone_insights["_cross_zone"] = cross_zone
+
             self._aggregated = aggregate_home_insights(zone_insights)
 
-            # Add cross-zone insights to aggregated data
+            # Also expose cross-zone recommendations as separate attribute
             cross_recs = [i.recommendation for i in cross_zone if i.recommendation]
             self._aggregated["cross_zone_insights"] = cross_recs
 
-            # Include cross-zone in counts
-            for ci in cross_zone:
-                self._aggregated["total_insights"] = self._aggregated.get("total_insights", 0) + 1
-                level = ci.priority.name.lower()
-                count_key = f"{level}_count"
-                self._aggregated[count_key] = self._aggregated.get(count_key, 0) + 1
-                # Update top priority if cross-zone is higher
-                current_top = self._aggregated.get("top_priority", "none")
-                priority_order = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-                if priority_order.get(level, 0) > priority_order.get(current_top, 0):
-                    self._aggregated["top_priority"] = level
-                    self._aggregated["top_recommendation"] = ci.recommendation
-
-            self._attr_native_value = self._aggregated.get("total_insights", 0)
+            self._attr_native_value = len(self._aggregated.get("actions_needed", []))
             self._attr_available = True
         except Exception as e:
             _LOGGER.debug(f"Failed to update home insights: {e}")
@@ -4790,16 +5449,16 @@ class TadoZoneInsightsSensor(SensorEntity):
     def extra_state_attributes(self):
         if not self._insights:
             return {
-                "top_priority": "none",
+                "top_priority": "None",
                 "top_recommendation": "",
                 "insight_types": [],
                 "recommendations": [],
             }
         top = max(self._insights, key=lambda i: i.priority.value)
         return {
-            "top_priority": top.priority.name.lower(),
+            "top_priority": _format_priority(top.priority.name.lower()),
             "top_recommendation": top.recommendation,
-            "insight_types": [i.insight_type for i in self._insights],
+            "insight_types": [_format_insight_type(i.insight_type) for i in self._insights],
             "recommendations": [i.recommendation for i in self._insights],
         }
 
@@ -4859,6 +5518,21 @@ class TadoZoneInsightsSensor(SensorEntity):
                     insights.append(Insight(
                         priority=get_insight_priority("comfort", "too_hot"),
                         recommendation=rec, insight_type="comfort",
+                        zone_name=self._zone_name,
+                    ))
+
+            # --- Condensation risk (v2.3.0) ---
+            if self.hass:
+                slug = self._zone_name.lower().replace(" ", "_")
+                cond_state = self.hass.states.get(f"sensor.{slug}_condensation_risk")
+                if cond_state and cond_state.state not in ("unavailable", "unknown", "None", "Low"):
+                    cond_rec = (cond_state.attributes or {}).get("recommendation", "")
+                    if not cond_rec:
+                        cond_rec = f"{self._zone_name}: Condensation risk detected"
+                    insights.append(Insight(
+                        priority=get_insight_priority("condensation", cond_state.state.lower()),
+                        recommendation=cond_rec,
+                        insight_type="condensation",
                         zone_name=self._zone_name,
                     ))
 
@@ -4964,6 +5638,90 @@ class TadoZoneInsightsSensor(SensorEntity):
                                 ))
             except Exception:
                 pass
+
+            # --- v2.3.0: Overlay duration (permanent overlay detection) ---
+            overlay_type = zone_data.get("overlayType")
+            next_schedule_change = zone_data.get("nextScheduleChange")
+            insight = calculate_overlay_duration_insight(
+                overlay_type=overlay_type,
+                next_schedule_change=next_schedule_change,
+                zone_name=self._zone_name,
+            )
+            if insight:
+                insights.append(insight)
+
+            # --- v2.3.0: Frequent override ---
+            insight = calculate_frequent_override_insight(
+                overlay_type=overlay_type,
+                zone_name=self._zone_name,
+            )
+            if insight:
+                insights.append(insight)
+
+            # --- v2.3.0: Heating off + cold room ---
+            setting = zone_data.get("setting") or {}
+            power_state = setting.get("power")
+            target_temp = (setting.get("temperature") or {}).get("celsius")
+            insight = calculate_heating_off_cold_room_insight(
+                power_state=power_state,
+                current_temp=inside_temp,
+                target_temp=target_temp,
+                zone_name=self._zone_name,
+            )
+            if insight:
+                insights.append(insight)
+
+            # --- v2.3.0: Early start disabled + long preheat ---
+            if self.hass:
+                slug = self._zone_name.lower().replace(" ", "_")
+                es_state = self.hass.states.get(f"switch.{slug}_early_start")
+                ph_state = self.hass.states.get(f"sensor.{slug}_preheat_time")
+                early_start_on = True
+                if es_state and es_state.state == "off":
+                    early_start_on = False
+                ph_min = None
+                if ph_state and ph_state.state not in ("unavailable", "unknown"):
+                    try:
+                        ph_min = float(ph_state.state)
+                    except (ValueError, TypeError):
+                        pass
+                insight = calculate_early_start_disabled_insight(
+                    early_start_enabled=early_start_on,
+                    preheat_time_minutes=ph_min,
+                    zone_name=self._zone_name,
+                )
+                if insight:
+                    insights.append(insight)
+
+            # --- v2.3.0: Poor thermal efficiency ---
+            if self.hass:
+                slug = self._zone_name.lower().replace(" ", "_")
+                ti_state = self.hass.states.get(f"sensor.{slug}_thermal_inertia")
+                hr_state = self.hass.states.get(f"sensor.{slug}_avg_heating_rate")
+                conf_state = self.hass.states.get(f"sensor.{slug}_analysis_confidence")
+                ti_val = None
+                hr_val = None
+                conf_val = None
+                for st, ref in [(ti_state, "ti_val"), (hr_state, "hr_val"), (conf_state, "conf_val")]:
+                    if st and st.state not in ("unavailable", "unknown"):
+                        try:
+                            val = float(st.state)
+                            if ref == "ti_val":
+                                ti_val = val
+                            elif ref == "hr_val":
+                                hr_val = val
+                            else:
+                                conf_val = val
+                        except (ValueError, TypeError):
+                            pass
+                insight = calculate_poor_thermal_efficiency_insight(
+                    thermal_inertia=ti_val,
+                    heating_rate=hr_val,
+                    confidence_score=conf_val,
+                    zone_name=self._zone_name,
+                )
+                if insight:
+                    insights.append(insight)
 
             self._insights = insights
             self._attr_native_value = len(insights)

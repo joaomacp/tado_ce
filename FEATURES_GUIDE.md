@@ -1386,13 +1386,32 @@ Enhanced Controls improve the user experience with:
 
 **Usage:**
 ```yaml
+# Timer mode - boost for specific duration
 service: tado_ce.set_climate_timer
 target:
   entity_id: climate.living_room
 data:
   temperature: 22
   time_period: 60  # Boost for 60 minutes
+
+# Overlay mode (v2.3.0+) - set until next schedule change
+service: tado_ce.set_climate_timer
+target:
+  entity_id: climate.living_room
+data:
+  temperature: 22
+  overlay: next_time_block  # No timer needed
+
+# Overlay mode (v2.3.0+) - set indefinitely
+service: tado_ce.set_climate_timer
+target:
+  entity_id: climate.living_room
+data:
+  temperature: 22
+  overlay: manual
 ```
+
+> **v2.3.0**: `time_period` is now optional when `overlay` is specified. Supported overlay values: `next_time_block` (until next schedule change) and `manual` (indefinite). Both Heating and AC zones supported.
 
 #### 3. Enhanced Hot Water Timer
 
@@ -1461,6 +1480,13 @@ data:
   entity_id: group.tado_group
   temperature: 22
   time_period: "01:30:00"
+
+# Set until next schedule change for all zones (v2.3.0+)
+service: tado_ce.set_climate_timer
+data:
+  entity_id: group.tado_group
+  temperature: 22
+  overlay: next_time_block
 
 # Resume schedule for all zones in group
 service: tado_ce.resume_schedule
@@ -2462,23 +2488,44 @@ The Home Insights sensor (`sensor.tado_ce_home_insights`) aggregates insights fr
 
 ### Insight Types
 
-| Insight | Priority | Trigger | Source |
-|---------|----------|---------|--------|
-| Mold Risk | Critical/High/Medium | Dew point margin < 7°C | Zone humidity + temperature |
-| Comfort Level | High/Medium | Temperature outside 18-24°C range | Zone temperature |
-| Window Predicted | High | Rapid temperature drop detected | `binary_sensor.{zone}_window_predicted` |
-| Battery Low | Critical/Low | Device battery LOW or CRITICAL | Zone device info |
-| Device Offline | High | Device connection lost | Zone device info |
-| Preheat Timing | Medium | Preheat time exceeds schedule gap | `sensor.{zone}_preheat_time` |
-| Schedule Deviation | Medium | Actual temp consistently deviates from schedule target | Zone temperature + schedule data |
-| Heating Anomaly | High | Power ≥80% but temp change <0.5°C for 60+ min | `sensor.{zone}_heating_power` |
-| Condensation Risk | Medium/High/Critical | AC zone condensation risk detected | `sensor.{zone}_condensation_risk` (AC zones only) |
-| Cross-Zone Mold | High | 3+ zones with Medium+ mold risk | All zone mold data |
-| Cross-Zone Windows | High | 2+ zones with window predicted open | All zone window sensors |
-| API Quota Planning | Medium/High | Projected exhaustion <6h before reset | API usage rate + remaining |
-| Weather Impact | Medium | Outdoor temp >5°C below 7-day average | Weather data |
+| Insight | Priority | Trigger | Source | Level |
+|---------|----------|---------|--------|-------|
+| Mold Risk | Critical/High/Medium | Dew point margin < 7°C | Zone humidity + temperature | Zone |
+| Comfort Level | High/Medium | Temperature outside 18-24°C range | Zone temperature | Zone |
+| Window Predicted | High | Rapid temperature drop detected | `binary_sensor.{zone}_window_predicted` | Zone |
+| Battery Low | Critical/Low | Device battery LOW or CRITICAL | Zone device info | Zone |
+| Device Offline | High | Device connection lost | Zone device info | Zone |
+| Preheat Timing | Medium | Preheat time exceeds schedule gap | `sensor.{zone}_preheat_time` | Zone |
+| Schedule Deviation | Medium | Actual temp consistently deviates from schedule target | Zone temperature + schedule data | Zone |
+| Heating Anomaly | High | Power ≥80% but temp change <0.5°C for 60+ min | `sensor.{zone}_heating_power` | Zone |
+| Condensation Risk | Medium/High/Critical | AC zone condensation risk detected | `sensor.{zone}_condensation_risk` | Zone |
+| Overlay Duration | Medium/High | Manual override active for extended period | Zone overlay data | Zone |
+| Frequent Override | Medium | Multiple manual overrides in recent period | Zone overlay history | Zone |
+| Heating Off Cold Room | High | Heating off but room temperature below comfort threshold | Zone temperature + HVAC state | Zone |
+| Early Start Disabled | Low | Early start / preheat feature not enabled | Zone configuration | Zone |
+| Poor Thermal Efficiency | Medium/High | Zone heating efficiency below expected threshold | `sensor.{zone}_heating_efficiency` | Zone |
+| Schedule Gap | Medium | Large gap in heating schedule leaving zone unheated | Zone schedule data | Zone |
+| Boiler Flow Anomaly | High | Boiler flow temperature outside expected range | `sensor.{zone}_boiler_flow_temperature` | Zone |
+| Humidity Trend | Medium | Sustained rising humidity trend detected | Zone humidity history | Zone |
+| Device Limitation | Low | Device hardware limitations affecting features | Zone device capabilities | Zone |
+| Cross-Zone Mold | High | 3+ zones with Medium+ mold risk | All zone mold data | Home |
+| Cross-Zone Windows | High | 2+ zones with window predicted open | All zone window sensors | Home |
+| Cross-Zone Condensation | High | Multiple zones with condensation risk | All zone condensation data | Home |
+| Cross-Zone Efficiency | Medium | Significant efficiency variation between zones | All zone efficiency data | Home |
+| Temperature Imbalance | Medium | Large temperature difference between zones | All zone temperatures | Home |
+| Humidity Imbalance | Medium | Large humidity difference between zones | All zone humidity data | Home |
+| Away Heating Active | High | Home in Away mode but heating still active | Home state + zone HVAC | Home |
+| Home All Off | Low | Everyone home but all heating/cooling off | Home state + zone HVAC | Home |
+| Solar Gain | Low | Solar gain detected, heating may be unnecessary | Weather + zone temperature | Home |
+| Solar AC Load | Medium | Strong solar exposure increasing AC load | Weather + AC zone data | Home |
+| Frost Risk | Critical | Outdoor temperature near freezing, frost protection needed | Weather data | Home |
+| Heating Season Advisory | Low | Seasonal heating guidance based on outdoor trends | Weather history | Home |
+| Geofencing Offline | High | Mobile device used for geofencing is offline | Mobile device data | Home |
+| API Usage Spike | Medium/High | Unusual spike in API call rate | API usage tracking | Home |
+| API Quota Planning | Medium/High | Projected exhaustion <6h before reset | API usage rate + remaining | Home |
+| Weather Impact | Medium | Outdoor temp >5°C below 7-day average | Weather data | Home |
 
-> **Zone vs Home insights:** Mold Risk, Comfort Level, Window Predicted, Battery Low, Device Offline, Preheat Timing, Schedule Deviation, Heating Anomaly, and Condensation Risk are **zone-level** insights (appear in `sensor.{zone}_insights`). Cross-Zone Mold, Cross-Zone Windows, API Quota Planning, and Weather Impact are **home-level** insights (appear only in `sensor.tado_ce_home_insights`).
+> **Zone vs Home insights:** Zone-level insights (Mold Risk through Device Limitation) appear in `sensor.{zone}_insights`. Home-level insights (Cross-Zone through Weather Impact) appear only in `sensor.tado_ce_home_insights`.
 
 ### Recommendation Attributes
 
@@ -2516,7 +2563,7 @@ Each HEATING and AIR_CONDITIONING zone gets its own insights sensor: `sensor.{zo
   - `insight_types` - List of active insight type names
   - `recommendations` - List of all recommendation texts
 - **Dynamic icon**: Changes based on highest priority (alert-octagon for critical, alert-circle for high, alert for medium, information for low)
-- **Insight types**: mold risk, comfort, window predicted, battery, connection, preheat timing, schedule deviation, heating anomaly
+- **Insight types**: mold risk, comfort, window predicted, battery, connection, preheat timing, schedule deviation, heating anomaly, condensation, overlay duration, frequent override, heating off cold, early start disabled, thermal efficiency, schedule gap, boiler flow anomaly, humidity trend, device limitation
 
 Unlike the hub-level Home Insights sensor, zone insights focus only on the specific zone and do not include cross-zone or API-level insights.
 

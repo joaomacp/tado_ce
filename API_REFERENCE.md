@@ -15,7 +15,7 @@ Tado CE tracks all API calls with a code system for easy identification:
 | 3 | zones | Zone configuration (names, types, devices) | No (required) |
 | 4 | mobileDevices | Geofencing device locations | Yes |
 | 5 | overlay | Manual overrides (set/delete temperature or mode changes) | N/A (action-triggered) |
-| 6 | presenceLock | Home/Away mode lock status | Planned |
+| 6 | presenceLock | Home/Away mode lock status | N/A (action-triggered) |
 | 7 | homeState | Home presence state (home/away) | Yes |
 | 8 | capabilities | AC zone capabilities (modes, fan levels, swing options) | Auto-cached |
 
@@ -49,6 +49,7 @@ These can be toggled in **Settings > Devices & Services > Tado CE > Configure**:
 | Code | Type | When Triggered |
 |------|------|----------------|
 | 5 | overlay | When you change temperature/mode via Tado CE services |
+| 6 | presenceLock | When you change Presence Mode (Home/Away/Auto) via Tado CE |
 
 These are not polling calls - they only happen when you take an action.
 
@@ -139,6 +140,13 @@ With all optional syncs disabled:
 
 This gives you maximum headroom for manual actions and automations.
 
+### For 1000 Calls/Day Limit
+
+A comfortable middle ground. Enable the features you need:
+- Weather Sensors and Home State Sync are low-cost (1 call each per sync)
+- Smart Day/Night polling keeps you well within budget
+- Typical usage with default settings: ~90-180 calls/day
+
 ### For Auto-Assist Users (20,000 calls/day)
 
 You can enable all features without concern:
@@ -148,7 +156,7 @@ You can enable all features without concern:
 - Smart Comfort Analytics
 - Schedule Calendar
 
-Even with 5-minute polling, you'll use ~576 calls/day (well under 5000 tier).
+Even with 5-minute polling, you'll use ~576 calls/day (well under 20,000 limit).
 
 ---
 
@@ -158,7 +166,7 @@ Tado CE reads rate limit information from API response headers:
 
 | Header | Description |
 |--------|-------------|
-| `X-RateLimit-Limit` | Your daily limit (100/5000/20000) |
+| `X-RateLimit-Limit` | Your daily limit (100/1000/20000) |
 | `X-RateLimit-Remaining` | Calls remaining today |
 | `X-RateLimit-Reset` | Reset time (note: often inaccurate) |
 
@@ -221,5 +229,5 @@ These files persist across restarts and upgrades.
 
 ---
 
-**Version**: 1.9.2  
-**Last Updated**: 2026-02-01
+**Version**: 2.3.0  
+**Last Updated**: 2026-02-25

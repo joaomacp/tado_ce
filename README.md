@@ -6,7 +6,7 @@
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.2.3-blue?style=for-the-badge&logo=home-assistant) ![Tado](https://img.shields.io/badge/Tado-V2%2FV3%2FV3%2B-orange?style=for-the-badge) ![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)
 
 <!-- Status Badges -->
-![Version](https://img.shields.io/badge/Version-2.2.4-purple?style=for-the-badge) ![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge) ![Maintained](https://img.shields.io/badge/Maintained-Yes-green.svg?style=for-the-badge) ![Unit Tests](https://img.shields.io/badge/Unit-768-blue?style=for-the-badge) ![Property Tests](https://img.shields.io/badge/Property-435-purple?style=for-the-badge) ![E2E Tests](https://img.shields.io/badge/E2E-190-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-2.3.0-purple?style=for-the-badge) ![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge) ![Maintained](https://img.shields.io/badge/Maintained-Yes-green.svg?style=for-the-badge) ![Unit Tests](https://img.shields.io/badge/Unit-768-blue?style=for-the-badge) ![Property Tests](https://img.shields.io/badge/Property-435-purple?style=for-the-badge) ![E2E Tests](https://img.shields.io/badge/E2E-190-green?style=for-the-badge)
 
 <!-- Community Badges -->
 ![GitHub stars](https://img.shields.io/github/stars/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub forks](https://img.shields.io/github/forks/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub issues](https://img.shields.io/github/issues/hiall-fyi/tado_ce?style=for-the-badge&logo=github) ![GitHub last commit](https://img.shields.io/github/last-commit/hiall-fyi/tado_ce?style=for-the-badge&logo=github)
@@ -88,7 +88,7 @@ Tado CE provides comprehensive smart climate control with:
 - **Smart Comfort** - Historical patterns, preheat advisor, schedule sensors, AI recommendations
 - **Enhanced Controls** - Smart boost, hot water timer, immediate refresh, temperature offset
 - **Environment Monitoring** - Mold risk assessment, comfort level tracking, condensation risk (AC)
-- **Actionable Insights** - Per-zone and home-wide intelligent recommendations with priority-based alerts (v2.2.0)
+- **Actionable Insights** - Per-zone and home-wide intelligent recommendations with priority-based alerts, 21 insight types across 7 categories (v2.3.0)
 - **Per-Zone Configuration** - Individual overlay modes, temperature limits, UFH settings per zone (v2.1.0)
 - **Zone Features Toggles** - Control which entity types are created for a minimal or full setup (v2.1.0)
 - **Optional Features** - Schedule calendar, boiler flow temperature, device tracking, home state sync
@@ -142,7 +142,7 @@ Quick overview of entities created by Tado CE:
 
 | Service | Description |
 |---------|-------------|
-| `set_climate_timer` | Set heating/cooling with timer or until next schedule |
+| `set_climate_timer` | Set heating/cooling with timer, until next schedule, or indefinitely |
 | `set_water_heater_timer` | Turn on hot water with timer |
 | `resume_schedule` | Delete overlay, return to schedule |
 | `set_climate_temperature_offset` | Calibrate device temperature (-10 to +10°C) |
@@ -346,7 +346,7 @@ Contributions welcome!
 
 ---
 
-**Version**: 2.2.4 | **Last Updated**: 2026-02-24 | **Tested On**: Home Assistant 2026.2.3
+**Version**: 2.3.0 | **Last Updated**: 2026-02-25 | **Tested On**: Home Assistant 2026.2.3
 
 ---
 
