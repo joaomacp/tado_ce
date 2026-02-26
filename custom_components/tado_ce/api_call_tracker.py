@@ -121,35 +121,42 @@ class APICallTracker:
     
     async def _save_history_async(self, data: Dict):
         """Save call history to disk using native async I/O with atomic write.
-        
-        #127 fix: Use run_in_executor for mkdir to guarantee completion before
-        file open. aiofiles.os.makedirs uses thread pool which may have scheduling
-        delays, causing FileNotFoundError on the subsequent open call.
+
+        Uses asyncio.Lock to serialize concurrent writes and a unique temp file
+        to prevent race conditions where multiple saves compete for the same
+        .tmp file path. (#127)
         """
-        try:
-            # Ensure directory exists — run_in_executor guarantees completion
-            # before next line, unlike aiofiles.os.makedirs which may be delayed
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.history_file.parent.mkdir(parents=True, exist_ok=True)
-            )
-            
-            # Write to temp file then atomic rename
-            temp_path = self.history_file.with_suffix('.tmp')
-            async with aiofiles.open(temp_path, 'w') as f:
-                await f.write(json.dumps(data, indent=2))
-            
-            # Atomic move
-            await aiofiles.os.replace(temp_path, self.history_file)
-        except Exception as e:
-            _LOGGER.error(f"Failed to save API call history: {e}")
-            # Clean up temp file if it exists
+        async with self._async_lock:
             try:
-                temp_path = self.history_file.with_suffix('.tmp')
-                if await aiofiles.os.path.exists(temp_path):
-                    await aiofiles.os.remove(temp_path)
-            except Exception as cleanup_err:
-                _LOGGER.debug(f"Failed to clean up temp file: {cleanup_err}")
+                # Ensure directory exists — run_in_executor guarantees completion
+                # before next line, unlike aiofiles.os.makedirs which may be delayed
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.history_file.parent.mkdir(parents=True, exist_ok=True)
+                )
+
+                # Use unique temp file to avoid collisions (matches _save_history_sync pattern)
+                import tempfile
+                temp_fd, temp_path_str = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: tempfile.mkstemp(
+                        dir=self.history_file.parent, suffix='.tmp'
+                    )
+                )
+                temp_path = Path(temp_path_str)
+
+                try:
+                    async with aiofiles.open(temp_fd, 'w', closefd=True) as f:
+                        await f.write(json.dumps(data, indent=2))
+
+                    # Atomic move
+                    await aiofiles.os.replace(temp_path, self.history_file)
+                except BaseException:
+                    # Clean up temp file on any failure
+                    temp_path.unlink(missing_ok=True)
+                    raise
+            except Exception as e:
+                _LOGGER.error(f"Failed to save API call history: {e}")
     
     async def async_init(self):
         """Initialize tracker asynchronously (load history from disk)."""
