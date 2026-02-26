@@ -354,7 +354,7 @@ Thermal Analytics automatically measures how your rooms respond to heating by an
 | Sensor | Unit | Description |
 |--------|------|-------------|
 | `_thermal_inertia` | minutes | Time constant for temperature changes |
-| `_avg_heating_rate` | °C/hour | Average heating rate when heating is ON |
+| `_avg_heating_rate` | °C/min | Average heating rate when heating is ON |
 | `_preheat_time` | minutes | Estimated time to reach target temperature |
 | `_analysis_confidence` | % | Confidence score for thermal analysis |
 | `_heating_acceleration` | °C/h² | Rate of change of heating rate |
@@ -380,12 +380,12 @@ Thermal Analytics automatically measures how your rooms respond to heating by an
 
 #### 2. Average Heating Rate (`_avg_heating_rate`)
 
-**What it measures:** How fast your room heats up (°C per hour).
+**What it measures:** How fast your room heats up (°C per minute).
 
 **Values:**
-- **Slow (<0.5°C/h):** Possible issues with radiator, boiler, or insulation
-- **Normal (0.5-2.0°C/h):** Typical for most rooms
-- **Fast (>2.0°C/h):** Small room or oversized radiator
+- **Slow (<0.01°C/min):** Possible issues with radiator, boiler, or insulation
+- **Normal (0.01-0.03°C/min):** Typical for most rooms
+- **Fast (>0.03°C/min):** Small room or oversized radiator
 
 **Why it's useful:**
 - Detect radiator/boiler issues
@@ -509,14 +509,14 @@ automation:
 
 **Indicators:**
 - **Low thermal inertia (<20 min)** - Heat escapes quickly
-- **Low heating rate (<0.5°C/h)** - Struggling to heat up
+- **Low heating rate (<0.01°C/min)** - Struggling to heat up
 - **High approach factor (>150%/h)** - Temperature fluctuates rapidly
 
 **Example:**
 ```
 Living Room:
   Thermal Inertia: 15 minutes ⚠️ (very low)
-  Heating Rate: 0.4°C/hour ⚠️ (slow)
+  Heating Rate: 0.007°C/min ⚠️ (slow)
   → Possible issue: Window seal broken, door gap, poor wall insulation
 ```
 
@@ -536,10 +536,10 @@ Living Room:
 
 | Room | Thermal Inertia | Heating Rate | Confidence | Status |
 |------|----------------|--------------|------------|--------|
-| Living Room | 45 min | 1.2°C/h | 95% | ✅ Normal |
-| Bedroom | 35 min | 1.5°C/h | 90% | ✅ Good |
-| Bathroom | 15 min | 0.6°C/h | 85% | ⚠️ Poor insulation |
-| Kitchen | 60 min | 0.8°C/h | 80% | ✅ High thermal mass |
+| Living Room | 45 min | 0.020°C/min | 95% | ✅ Normal |
+| Bedroom | 35 min | 0.025°C/min | 90% | ✅ Good |
+| Bathroom | 15 min | 0.010°C/min | 85% | ⚠️ Poor insulation |
+| Kitchen | 60 min | 0.013°C/min | 80% | ✅ High thermal mass |
 
 **Interpretation:**
 - Bathroom: Low inertia + slow heating = insulation issue
@@ -552,18 +552,18 @@ Living Room:
 **Goal:** Detect when heating system performance degrades.
 
 **Indicators:**
-- **Heating rate suddenly drops** (e.g., from 1.5°C/h to 0.8°C/h)
+- **Heating rate suddenly drops** (e.g., from 0.025°C/min to 0.012°C/min)
 - **Preheat time increases** significantly
 - **Approach factor decreases** over time
 
 **Example:**
 ```
 Bedroom - Last Week:
-  Heating Rate: 1.5°C/hour ✅
+  Heating Rate: 0.025°C/min ✅
   Preheat Time: 60 minutes ✅
   
 Bedroom - This Week:
-  Heating Rate: 0.7°C/hour ⚠️ (dropped 53%)
+  Heating Rate: 0.012°C/min ⚠️ (dropped 53%)
   Preheat Time: 130 minutes ⚠️ (increased 117%)
   → Possible issue: Radiator valve stuck, boiler flow temp low, air in system
 ```
@@ -600,10 +600,10 @@ Where Expected Rate is based on:
 
 | Room | Heating Rate | Thermal Inertia | Efficiency | Status |
 |------|--------------|-----------------|------------|--------|
-| Living Room | 1.2°C/h | 45 min | 95% | ✅ Efficient |
-| Bedroom | 1.5°C/h | 35 min | 110% | ✅ Very efficient |
-| Bathroom | 0.6°C/h | 15 min | 60% | ⚠️ Inefficient |
-| Kitchen | 0.8°C/h | 60 min | 85% | ✅ Good (high thermal mass) |
+| Living Room | 0.020°C/min | 45 min | 95% | ✅ Efficient |
+| Bedroom | 0.025°C/min | 35 min | 110% | ✅ Very efficient |
+| Bathroom | 0.010°C/min | 15 min | 60% | ⚠️ Inefficient |
+| Kitchen | 0.013°C/min | 60 min | 85% | ✅ Good (high thermal mass) |
 
 **Interpretation:**
 - Bedroom: High efficiency - good insulation, properly sized radiator

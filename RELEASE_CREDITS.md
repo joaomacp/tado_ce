@@ -15,6 +15,16 @@ Community contributors who helped shape Tado CE through bug reports, feature req
 **[@slflowfoon](https://github.com/slflowfoon)** - [Issue #127](https://github.com/hiall-fyi/tado_ce/issues/127)
 - Reported blocking I/O warning in `api_call_tracker.py` on fresh install
 
+### What Was Fixed
+
+- ✅ **Issue #142**: AC fan mapping rebuilt per-zone from actual capabilities; Mitsubishi/Fujitsu `FOUR` now maps correctly to `FAN_HIGH`
+- ✅ **Issue #127**: Blocking I/O in `api_call_tracker.py` — directory creation moved to async executor
+- ✅ AC capabilities signal — live reload without HA restart when Refresh AC Capabilities button pressed
+- ✅ AC fan mode fallback now uses `AUTO` instead of silent static mapping
+- ✅ AC temperature default uses capabilities midpoint instead of hardcoded 24°C
+- ✅ AC optimistic state preserves fan/swing modes during update cycle
+- ✅ AC rollback includes swing mode in HVAC mode change rollback
+
 ---
 
 ## v2.3.0 - Expanded Insights, Service Enhancement & Bug Fixes
@@ -792,6 +802,17 @@ Community contributors who helped shape Tado CE through bug reports, feature req
 **[@thefern69](https://github.com/thefern69)** - [Issue #9](https://github.com/hiall-fyi/tado_ce/issues/9)
 - Provided Docker installation instructions
 - Helped improve README documentation for Docker users
+
+### What Was Added/Fixed
+
+- ✅ **Issue #4**: Zone-based device organization — each zone as separate device
+- ✅ **Issue #4**: Entity naming — removed "Tado CE" prefix for zone entities
+- ✅ **Issue #4**: Optional weather sensors toggle to save API calls
+- ✅ **Issue #4**: Customizable day/night polling intervals
+- ✅ **Issue #5**: Immediate refresh after user actions (debounced)
+- ✅ **Issue #6**: Hot water AUTO/HEAT/OFF modes with timer buttons (30/60/90 min)
+- ✅ **Issue #7**: Climate timer service (`set_climate_timer`)
+- ✅ 60-70% reduction in API calls through optimized sync
 
 ### Community Quotes
 

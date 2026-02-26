@@ -42,7 +42,7 @@ These can be toggled in **Settings > Devices & Services > Tado CE > Configure**:
 
 | Code | Type | Behavior |
 |------|------|----------|
-| 8 | capabilities | Fetched once per AC zone, cached locally. Only re-fetched via "Refresh AC Capabilities" button |
+| 8 | capabilities | Fetched once per AC zone, cached locally. Re-fetched via "Refresh AC Capabilities" button, which also signals AC climate entities to reload capabilities and rebuild fan mapping without HA restart (v2.3.1) |
 
 ### Action-Triggered Calls
 

@@ -892,21 +892,23 @@ For air conditioning zones, climate entities support additional features:
 
 ---
 
-## Smart Comfort Analytics (v1.9.0)
+## Smart Comfort Analytics (v1.9.0) — ⚠️ Deprecated in v2.0.0
 
 **Optional feature** - Enable in integration options under "Smart Comfort Settings".
+
+> **⚠️ Deprecation Notice:** The sensors listed below (`heating_rate`, `cooling_rate`, `heating_efficiency`, `time_to_target`) were removed in v2.0.0 and replaced by Thermal Analytics sensors. See [v2.0.0 Changes](#-v200-changes) for migration paths. The remaining Smart Comfort sensors (`comfort_level`, `historical_temp`, `preheat_advisor`, `smart_comfort_target`, `next_schedule_time`, `next_schedule_temp`) are still active.
 
 Provides intelligent heating insights based on temperature history analysis.
 
 ### Per Zone Sensors
 
-| Entity | Type | Unit | Description |
-|--------|------|------|-------------|
-| `sensor.{zone}_heating_rate` | Sensor | °C/h | Temperature rise rate when heating is active |
-| `sensor.{zone}_cooling_rate` | Sensor | °C/h | Temperature drop rate when heating is off (heat loss) |
-| `sensor.{zone}_heating_efficiency` | Sensor | % | Current rate vs baseline (detect anomalies) |
-| `sensor.{zone}_time_to_target` | Sensor | min | Estimated time to reach target temperature |
-| `sensor.{zone}_comfort_level` | Sensor | State | Too Cold / Comfortable / Too Warm |
+| Entity | Type | Unit | Status | Description |
+|--------|------|------|--------|-------------|
+| `sensor.{zone}_heating_rate` | Sensor | °C/h | ❌ Removed v2.0.0 | Use `sensor.{zone}_avg_heating_rate` (Thermal Analytics) |
+| `sensor.{zone}_cooling_rate` | Sensor | °C/h | ❌ Removed v2.0.0 | No direct replacement (heat loss analysis) |
+| `sensor.{zone}_heating_efficiency` | Sensor | % | ❌ Removed v2.0.0 | Use `sensor.{zone}_analysis_confidence` (Thermal Analytics) |
+| `sensor.{zone}_time_to_target` | Sensor | min | ❌ Removed v2.0.0 | Use `sensor.{zone}_preheat_time` (Thermal Analytics) |
+| `sensor.{zone}_comfort_level` | Sensor | State | ✅ Active | Too Cold / Comfortable / Too Warm |
 
 ### Heating Efficiency Sensor Details
 

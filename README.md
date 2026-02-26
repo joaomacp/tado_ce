@@ -142,7 +142,7 @@ Quick overview of entities created by Tado CE:
 
 | Service | Description |
 |---------|-------------|
-| `set_climate_timer` | Set heating/cooling with timer, until next schedule, or indefinitely |
+| `set_climate_timer` | Set heating/cooling with timer, until next schedule (`overlay: next_time_block`), or indefinitely (`overlay: manual`). `time_period` optional when `overlay` specified (v2.3.0) |
 | `set_water_heater_timer` | Turn on hot water with timer |
 | `resume_schedule` | Delete overlay, return to schedule |
 | `set_climate_temperature_offset` | Calibrate device temperature (-10 to +10°C) |
