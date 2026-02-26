@@ -30,7 +30,7 @@ from .data_loader import (
     load_home_state_file, load_offsets_file, load_ac_capabilities_file,
     get_zone_names as dl_get_zone_names, get_zone_types as dl_get_zone_types
 )
-from .immediate_refresh_handler import SIGNAL_ZONES_UPDATED
+from .immediate_refresh_handler import SIGNAL_ZONES_UPDATED, SIGNAL_AC_CAPABILITIES_UPDATED
 from .sensor import _format_overlay_type, _format_zone_type
 
 _LOGGER = logging.getLogger(__name__)
@@ -957,8 +957,11 @@ class TadoACClimate(ClimateEntity):
         # Build supported features based on capabilities
         features = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_OFF | ClimateEntityFeature.TURN_ON
         
-        # Check if any mode has fan levels
-        has_fan = any((ac_caps.get(mode) or {}).get('fanLevel') for mode in ['COOL', 'HEAT', 'DRY', 'FAN', 'AUTO'])
+        # Check if any mode has fan levels (fanLevel = newer firmware, fanSpeeds = older firmware)
+        has_fan = any(
+            (ac_caps.get(mode) or {}).get('fanLevel') or (ac_caps.get(mode) or {}).get('fanSpeeds')
+            for mode in ['COOL', 'HEAT', 'DRY', 'FAN', 'AUTO']
+        )
         if has_fan:
             features |= ClimateEntityFeature.FAN_MODE
         
@@ -995,25 +998,30 @@ class TadoACClimate(ClimateEntity):
         
         _LOGGER.debug(f"AC zone {zone_id} HVAC modes: {self._attr_hvac_modes}")
         
-        # Fan modes - collect from all modes that have fanLevel
+        # Fan modes - collect from all modes that have fanLevel or fanSpeeds (legacy firmware)
         fan_levels = set()
         for mode_caps in ac_caps.values():
-            if isinstance(mode_caps, dict) and 'fanLevel' in mode_caps:
-                fan_levels.update(mode_caps['fanLevel'])
+            if isinstance(mode_caps, dict):
+                if 'fanLevel' in mode_caps:
+                    fan_levels.update(mode_caps['fanLevel'])
+                elif 'fanSpeeds' in mode_caps:
+                    fan_levels.update(mode_caps['fanSpeeds'])
         
         if fan_levels:
-            # Map Tado fan levels to HA fan modes
-            self._attr_fan_modes = []
-            if 'AUTO' in fan_levels:
-                self._attr_fan_modes.append(FAN_AUTO)
-            if any(f in fan_levels for f in ['SILENT', 'LEVEL1', 'LEVEL2', 'LOW']):
-                self._attr_fan_modes.append(FAN_LOW)
-            if any(f in fan_levels for f in ['LEVEL3', 'MIDDLE']):
-                self._attr_fan_modes.append(FAN_MEDIUM)
-            if any(f in fan_levels for f in ['LEVEL4', 'LEVEL5', 'HIGH']):
-                self._attr_fan_modes.append(FAN_HIGH)
-            _LOGGER.debug(f"AC zone {zone_id} fan modes: {self._attr_fan_modes} (from {fan_levels})")
+            # v2.2.4: Dynamic per-zone fan mapping (#142 - @BirbByte)
+            # Build bidirectional mapping from actual capabilities instead of static lookup.
+            # Different AC brands use different fan level names:
+            #   Mitsubishi: ONE, TWO, THREE, FOUR, AUTO
+            #   Fujitsu:    ONE, TWO, THREE, FOUR, AUTO
+            #   Older units: LEVEL1, LEVEL2, LEVEL3, LEVEL4, LEVEL5, AUTO
+            #   Legacy:      LOW, MIDDLE, HIGH, AUTO
+            # Strategy: sort non-AUTO levels, divide evenly into low/medium/high buckets.
+            self._tado_to_ha_fan, self._ha_to_tado_fan = self._build_fan_mapping(fan_levels)
+            self._attr_fan_modes = list(dict.fromkeys(self._tado_to_ha_fan.values()))  # preserve order, dedupe
+            _LOGGER.debug(f"AC zone {zone_id} fan modes: {self._attr_fan_modes} (from {fan_levels}), ha→tado: {self._ha_to_tado_fan}")
         else:
+            self._tado_to_ha_fan = dict(TADO_TO_HA_FAN)
+            self._ha_to_tado_fan = dict(HA_TO_TADO_FAN)
             self._attr_fan_modes = [FAN_AUTO, FAN_LOW, FAN_MEDIUM, FAN_HIGH]
         
         # Swing modes - dynamically built from capabilities
@@ -1102,6 +1110,9 @@ class TadoACClimate(ClimateEntity):
         
         # v2.1.0: Unsubscribe callback for zone config changes
         self._unsub_zone_config = None
+        
+        # v2.3.1: Unsubscribe callback for AC capabilities updated signal (BLOCKING-3)
+        self._unsub_ac_caps = None
 
     # ========== v1.10.0: Helper Methods (Updated for Issue #44 fix) ==========
     
@@ -1118,6 +1129,92 @@ class TadoACClimate(ClimateEntity):
         self._optimistic_sequence = None
         self._expected_hvac_mode = None
         self._expected_hvac_action = None
+
+    @staticmethod
+    def _build_fan_mapping(fan_levels: set) -> tuple[dict, dict]:
+        """Build bidirectional fan level mapping from actual AC capabilities.
+
+        v2.2.4: Dynamic mapping to fix #142 (Mitsubishi/Fujitsu HIGH fan speed).
+
+        Different AC brands use different fan level names:
+          - Mitsubishi/Fujitsu: ONE, TWO, THREE, FOUR, AUTO
+          - Newer Tado:         LEVEL1, LEVEL2, LEVEL3, LEVEL4, LEVEL5, AUTO
+          - Legacy:             LOW, MIDDLE, HIGH, AUTO
+          - Silent variants:    SILENT, ONE, TWO, THREE, FOUR, AUTO
+
+        Strategy:
+          1. AUTO always maps to FAN_AUTO
+          2. SILENT always maps to FAN_LOW (quietest)
+          3. Remaining levels sorted and divided evenly into low/medium/high buckets
+          4. ha→tado picks the HIGHEST tado level in each bucket (best match for user intent)
+
+        Returns:
+            (tado_to_ha, ha_to_tado) mapping dicts
+        """
+        TADO_FAN_ORDER = [
+            "SILENT",
+            "LOW", "LEVEL1", "ONE",
+            "MIDDLE", "LEVEL2", "TWO",
+            "LEVEL3", "THREE",
+            "LEVEL4", "FOUR",
+            "HIGH", "LEVEL5",
+        ]
+
+        tado_to_ha = {}
+        ha_to_tado = {}
+
+        # AUTO always maps to FAN_AUTO
+        if "AUTO" in fan_levels:
+            tado_to_ha["AUTO"] = FAN_AUTO
+            ha_to_tado[FAN_AUTO] = "AUTO"
+
+        # SILENT is always the quietest → FAN_LOW
+        if "SILENT" in fan_levels:
+            tado_to_ha["SILENT"] = FAN_LOW
+
+        # Sort remaining non-AUTO, non-SILENT levels by known order
+        other_levels = sorted(
+            [f for f in fan_levels if f not in ("AUTO", "SILENT")],
+            key=lambda x: TADO_FAN_ORDER.index(x) if x in TADO_FAN_ORDER else 99
+        )
+
+        n = len(other_levels)
+        if n == 0:
+            if "SILENT" in fan_levels:
+                ha_to_tado[FAN_LOW] = "SILENT"
+            return tado_to_ha, ha_to_tado
+
+        # Divide into 3 buckets: low / medium / high
+        # n=1 → [low]
+        # n=2 → [low, high]
+        # n=3 → [low, medium, high]
+        # n=4 → [low, low, medium, high]
+        # n=5 → [low, low, medium, high, high]
+        low_end = max(1, n // 3)
+        high_start = n - max(1, n // 3)
+
+        for i, level in enumerate(other_levels):
+            if i < low_end:
+                ha_mode = FAN_LOW
+            elif i >= high_start:
+                ha_mode = FAN_HIGH
+            else:
+                ha_mode = FAN_MEDIUM
+            tado_to_ha[level] = ha_mode
+
+        # ha→tado: pick the HIGHEST tado level in each bucket
+        for ha_mode in [FAN_LOW, FAN_MEDIUM, FAN_HIGH]:
+            candidates = [lvl for lvl, ha in tado_to_ha.items() if ha == ha_mode and lvl not in ("AUTO", "SILENT")]
+            if candidates:
+                ha_to_tado[ha_mode] = candidates[-1]
+
+        # Fallback: if FAN_LOW not mapped yet, use SILENT
+        if FAN_LOW not in ha_to_tado and "SILENT" in fan_levels:
+            ha_to_tado[FAN_LOW] = "SILENT"
+
+        return tado_to_ha, ha_to_tado
+
+
     
     async def _set_optimistic_state(self, hvac_mode: HVACMode, hvac_action: HVACAction, target_temp: float = None):
         """Set optimistic state with sequence number tracking.
@@ -1147,6 +1244,8 @@ class TadoACClimate(ClimateEntity):
             "target_temperature": target_temp,
             "hvac_mode": hvac_mode,
             "hvac_action": hvac_action,
+            "fan_mode": self._attr_fan_mode,
+            "swing_mode": self._attr_swing_mode,
             "timestamp": time.time(),
         }
         self._expected_hvac_mode = hvac_mode
@@ -1226,20 +1325,49 @@ class TadoACClimate(ClimateEntity):
         optimistic hvac_action if API hasn't caught up yet (#44).
         
         v2.1.0: Listen for zone config changes to update min/max temp.
+        v2.3.1: Listen for AC capabilities updated signal (BLOCKING-3).
         """
         await super().async_added_to_hass()
         
         @callback
         def _handle_zones_updated():
             """Handle zones.json update signal."""
-            # v1.9.6: Don't clear _optimistic_set_at - update() will preserve
-            # optimistic hvac_action if ac_power hasn't updated yet (#44)
-            # Schedule immediate update
             self.async_schedule_update_ha_state(True)
             _LOGGER.debug(f"AC {self._zone_name}: Received zones_updated signal, scheduling update")
         
         self._unsub_zones_updated = async_dispatcher_connect(
             self.hass, SIGNAL_ZONES_UPDATED, _handle_zones_updated
+        )
+        
+        # v2.3.1: Subscribe to AC capabilities updated signal (BLOCKING-3)
+        # When Refresh AC Capabilities button is pressed, reload capabilities from disk
+        # and rebuild fan mapping so changes take effect without HA restart.
+        @callback
+        def _handle_ac_caps_updated():
+            """Handle AC capabilities refresh signal."""
+            _LOGGER.debug(f"AC {self._zone_name}: Received ac_capabilities_updated signal, reloading")
+            # Reload capabilities from disk
+            new_caps = load_ac_capabilities_file() or {}
+            zone_caps = new_caps.get(self._zone_id)
+            if zone_caps:
+                self._capabilities['ac_capabilities'] = zone_caps
+                # Rebuild fan mapping from new capabilities
+                ac_caps = zone_caps
+                fan_levels = set()
+                for mode_caps in ac_caps.values():
+                    if isinstance(mode_caps, dict):
+                        if 'fanLevel' in mode_caps:
+                            fan_levels.update(mode_caps['fanLevel'])
+                        elif 'fanSpeeds' in mode_caps:
+                            fan_levels.update(mode_caps['fanSpeeds'])
+                if fan_levels:
+                    self._tado_to_ha_fan, self._ha_to_tado_fan = self._build_fan_mapping(fan_levels)
+                    self._attr_fan_modes = list(dict.fromkeys(self._tado_to_ha_fan.values()))
+                    _LOGGER.info(f"AC {self._zone_name}: Rebuilt fan mapping: {self._ha_to_tado_fan}")
+                self.async_write_ha_state()
+        
+        self._unsub_ac_caps = async_dispatcher_connect(
+            self.hass, SIGNAL_AC_CAPABILITIES_UPDATED, _handle_ac_caps_updated
         )
         
         # v2.1.0: Listen for zone config changes
@@ -1262,10 +1390,14 @@ class TadoACClimate(ClimateEntity):
         
         v1.9.3: Clean up signal listener to prevent memory leaks.
         v2.1.0: Clean up zone config listener.
+        v2.3.1: Clean up AC capabilities listener.
         """
         if self._unsub_zones_updated:
             self._unsub_zones_updated()
             self._unsub_zones_updated = None
+        if self._unsub_ac_caps:
+            self._unsub_ac_caps()
+            self._unsub_ac_caps = None
         if self._unsub_zone_config:
             self._unsub_zone_config()
             self._unsub_zone_config = None
@@ -1276,6 +1408,7 @@ class TadoACClimate(ClimateEntity):
         
         v2.1.0: Per-zone temperature limits override capabilities.
         If per-zone value is not set, reset to capabilities default.
+        v2.3.1: Clamp user values to capabilities range (HIGH-3).
         """
         zone_config_manager = self.hass.data.get(DOMAIN, {}).get('zone_config_manager')
         if zone_config_manager:
@@ -1283,16 +1416,19 @@ class TadoACClimate(ClimateEntity):
             min_temp = zone_config_manager.get_zone_value(self._zone_id, "min_temp", None)
             max_temp = zone_config_manager.get_zone_value(self._zone_id, "max_temp", None)
             
+            caps_min = self._get_capabilities_temp_limit('min', 16)
+            caps_max = self._get_capabilities_temp_limit('max', 30)
+            
             if min_temp is not None:
-                self._attr_min_temp = min_temp
+                # Clamp: user can't set min lower than AC hardware minimum
+                self._attr_min_temp = max(float(min_temp), caps_min)
             else:
-                # Reset to capabilities default
-                self._attr_min_temp = self._get_capabilities_temp_limit('min', 16)
+                self._attr_min_temp = caps_min
             if max_temp is not None:
-                self._attr_max_temp = max_temp
+                # Clamp: user can't set max higher than AC hardware maximum
+                self._attr_max_temp = min(float(max_temp), caps_max)
             else:
-                # Reset to capabilities default
-                self._attr_max_temp = self._get_capabilities_temp_limit('max', 30)
+                self._attr_max_temp = caps_max
     
     def _get_capabilities_temp_limit(self, limit_type: str, default: float) -> float:
         """Get temperature limit from AC capabilities.
@@ -1383,8 +1519,9 @@ class TadoACClimate(ClimateEntity):
                 self._attr_hvac_mode = TADO_TO_HA_HVAC_MODE.get(tado_mode, HVACMode.AUTO)
                 
                 # Fan - API returns fanLevel (newer firmware) or fanSpeed (older firmware)
+                # v2.2.4: Use per-zone dynamic mapping instead of static global (#142)
                 fan_level = setting.get('fanLevel') or setting.get('fanSpeed')
-                self._attr_fan_mode = TADO_TO_HA_FAN.get(fan_level, FAN_AUTO)
+                self._attr_fan_mode = self._tado_to_ha_fan.get(fan_level) or TADO_TO_HA_FAN.get(fan_level, FAN_AUTO)
                 
                 # Swing - API returns verticalSwing/horizontalSwing (not swing)
                 # v2.2.0: Don't assume "OFF" is valid - check capabilities (#128)
@@ -1436,6 +1573,12 @@ class TadoACClimate(ClimateEntity):
                     # Keep optimistic mode and action until API confirms
                     self._attr_hvac_mode = self._expected_hvac_mode
                     self._attr_hvac_action = self._expected_hvac_action
+                    # v2.3.1: Also restore fan/swing from optimistic state (HIGH-1)
+                    if self._optimistic_state:
+                        if self._optimistic_state.get("fan_mode") is not None:
+                            self._attr_fan_mode = self._optimistic_state["fan_mode"]
+                        if self._optimistic_state.get("swing_mode") is not None:
+                            self._attr_swing_mode = self._optimistic_state["swing_mode"]
                     _LOGGER.debug(f"AC {self._zone_name}: Using optimistic state: mode={self._attr_hvac_mode}, action={self._attr_hvac_action}")
                 else:
                     self._attr_hvac_action = api_hvac_action
@@ -1644,6 +1787,7 @@ class TadoACClimate(ClimateEntity):
             old_mode = self._attr_hvac_mode
             old_temp = self._attr_target_temperature
             old_fan = self._attr_fan_mode
+            old_swing = self._attr_swing_mode
             old_action = self._attr_hvac_action
             
             self._attr_hvac_mode = hvac_mode
@@ -1662,7 +1806,8 @@ class TadoACClimate(ClimateEntity):
                 # FAN mode and modes without temperature support: clear temperature display
                 self._attr_target_temperature = None
             elif not self._attr_target_temperature:
-                self._attr_target_temperature = 24.0
+                # Use midpoint of capabilities range instead of hardcoded 24°C
+                self._attr_target_temperature = (self._attr_min_temp + self._attr_max_temp) / 2
             
             # Set default fan mode if not already set
             if not self._attr_fan_mode:
@@ -1694,6 +1839,7 @@ class TadoACClimate(ClimateEntity):
                 self._attr_hvac_mode = old_mode
                 self._attr_target_temperature = old_temp
                 self._attr_fan_mode = old_fan
+                self._attr_swing_mode = old_swing
                 self._attr_hvac_action = old_action
                 self._clear_optimistic_state()
                 self.async_write_ha_state()
@@ -1729,7 +1875,10 @@ class TadoACClimate(ClimateEntity):
         await self._set_optimistic_state(self._attr_hvac_mode, new_hvac_action)
         self.async_write_ha_state()
         
-        tado_fan = HA_TO_TADO_FAN.get(fan_mode, 'AUTO')
+        tado_fan = self._ha_to_tado_fan.get(fan_mode)
+        if not tado_fan:
+            _LOGGER.warning(f"AC {self._zone_name}: no tado fan mapping for '{fan_mode}', using AUTO")
+            tado_fan = 'AUTO'
         
         # v1.9.2: Await API call with timeout (fixes #44)
         api_success = False
@@ -1871,35 +2020,39 @@ class TadoACClimate(ClimateEntity):
             elif self._attr_target_temperature:
                 setting["temperature"] = {"celsius": self._attr_target_temperature}
             else:
-                setting["temperature"] = {"celsius": 24}
+                # Use midpoint of capabilities range instead of hardcoded 24°C
+                setting["temperature"] = {"celsius": (self._attr_min_temp + self._attr_max_temp) / 2}
         
         # Fan level - only send if mode supports it AND value is in supported list
-        # v2.2.3 Fix: Validate fan level against capabilities (#142 - @BirbByte)
-        # Similar to swing validation in v2.2.0 (#128)
-        if 'fanLevel' in mode_caps:
-            supported_fan_levels = mode_caps.get('fanLevel') or []
+        # v2.2.4: Use per-zone dynamic mapping (#142 - @BirbByte)
+        # v2.2.3: Validate fan level against capabilities
+        # v2.3.1: Support both fanLevel (newer firmware) and fanSpeeds (legacy firmware)
+        fan_key = 'fanLevel' if 'fanLevel' in mode_caps else ('fanSpeeds' if 'fanSpeeds' in mode_caps else None)
+        if fan_key:
+            supported_fan_levels = mode_caps.get(fan_key) or []
             if fan_level:
                 # Explicit value passed - validate it
                 if fan_level in supported_fan_levels:
-                    setting["fanLevel"] = fan_level
+                    setting[fan_key] = fan_level
                 elif supported_fan_levels:
-                    # Fallback: use AUTO if supported, else first supported value
                     fallback = "AUTO" if "AUTO" in supported_fan_levels else supported_fan_levels[0]
-                    setting["fanLevel"] = fallback
+                    setting[fan_key] = fallback
                     _LOGGER.warning(f"AC {self._zone_name}: fan level {fan_level} not supported, using {fallback}")
             elif self._attr_fan_mode:
-                tado_fan = HA_TO_TADO_FAN.get(self._attr_fan_mode, 'AUTO')
+                # v2.2.4: Use per-zone mapping first, fall back to global static
+                tado_fan = self._ha_to_tado_fan.get(self._attr_fan_mode) or HA_TO_TADO_FAN.get(self._attr_fan_mode, 'AUTO')
                 if tado_fan in supported_fan_levels:
-                    setting["fanLevel"] = tado_fan
-                elif "AUTO" in supported_fan_levels:
-                    setting["fanLevel"] = "AUTO"
+                    setting[fan_key] = tado_fan
                 elif supported_fan_levels:
-                    setting["fanLevel"] = supported_fan_levels[0]
+                    # Try to find the closest supported level
+                    fallback = "AUTO" if "AUTO" in supported_fan_levels else supported_fan_levels[-1]
+                    setting[fan_key] = fallback
+                    _LOGGER.debug(f"AC {self._zone_name}: mapped fan {self._attr_fan_mode}→{tado_fan} not in {supported_fan_levels}, using {fallback}")
             else:
                 if "AUTO" in supported_fan_levels:
-                    setting["fanLevel"] = "AUTO"
+                    setting[fan_key] = "AUTO"
                 elif supported_fan_levels:
-                    setting["fanLevel"] = supported_fan_levels[0]
+                    setting[fan_key] = supported_fan_levels[0]
         
         # Swing - only send if mode supports it AND value is in supported list
         # v2.2.0 Fix: Validate swing values against capabilities (#128 - @BirbByte)

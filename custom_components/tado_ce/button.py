@@ -168,14 +168,21 @@ class TadoRefreshACCapabilitiesButton(ButtonEntity):
     async def async_press(self) -> None:
         """Handle button press - refresh AC capabilities from API."""
         from .async_api import get_async_client
-        from .const import AC_CAPABILITIES_FILE
+        from .data_loader import get_current_home_id
+        from .const import get_data_file
+        from .immediate_refresh_handler import SIGNAL_AC_CAPABILITIES_UPDATED
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
         
         _LOGGER.info("Refresh AC Capabilities button pressed")
         
+        # v2.3.1: Use home-aware file path (TECH-2)
+        home_id = get_current_home_id()
+        ac_caps_file = get_data_file("ac_capabilities", home_id)
+        
         # Delete existing cache to force re-fetch
         def _delete_cache():
-            if AC_CAPABILITIES_FILE.exists():
-                AC_CAPABILITIES_FILE.unlink()
+            if ac_caps_file.exists():
+                ac_caps_file.unlink()
                 _LOGGER.debug("Deleted AC capabilities cache")
         
         await self.hass.async_add_executor_job(_delete_cache)
@@ -192,6 +199,10 @@ class TadoRefreshACCapabilitiesButton(ButtonEntity):
         try:
             await client._sync_ac_capabilities(zones_info)
             _LOGGER.info("AC capabilities refreshed successfully")
+            
+            # v2.3.1: Fire signal so AC climate entities reload capabilities (BLOCKING-3)
+            async_dispatcher_send(self.hass, SIGNAL_AC_CAPABILITIES_UPDATED)
+            _LOGGER.debug("Sent AC capabilities updated signal")
         except Exception as e:
             _LOGGER.error(f"Failed to refresh AC capabilities: {e}")
 

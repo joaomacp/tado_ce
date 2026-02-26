@@ -2,6 +2,51 @@
 
 All notable changes to Tado CE will be documented in this file.
 
+## [2.3.1] - 2026-02-26
+
+### Bug Fixes
+- **Fixed AC 'High' Fan Speed Still Reverting on Mitsubishi/Fujitsu Units** ([#142](https://github.com/hiall-fyi/tado_ce/issues/142) - @BirbByte)
+  - v2.2.3 added validation but the underlying static mapping (`FAN_HIGH → "LEVEL5"`) was still wrong for units using `ONE/TWO/THREE/FOUR` naming
+  - New `_build_fan_mapping()` method builds a per-zone bidirectional mapping from actual AC capabilities at startup
+  - Sorts non-AUTO/SILENT fan levels and divides evenly into low/medium/high buckets; `ha→tado` picks the highest level in each bucket
+  - Mitsubishi/Fujitsu `{ONE,TWO,THREE,FOUR,AUTO}` now correctly maps `FAN_HIGH → FOUR`
+  - Also supports `fanSpeeds` key (legacy firmware) in addition to `fanLevel` (newer firmware)
+
+- **Fixed Blocking I/O in `api_call_tracker.py` on Fresh Install** ([#127](https://github.com/hiall-fyi/tado_ce/issues/127) - @slflowfoon)
+  - `__init__` called `os.makedirs()` synchronously on the event loop, causing blocking I/O warnings on fresh installs where the data directory doesn't exist yet
+  - Removed `makedirs` from `__init__`; directory creation now happens inside `_save_history_async()` via `hass.async_add_executor_job()`
+
+### Improvements
+- **AC Capabilities Signal — Live Reload Without HA Restart** (BLOCKING-3)
+  - `TadoACClimate` now subscribes to `SIGNAL_AC_CAPABILITIES_UPDATED` dispatcher signal
+  - When "Refresh AC Capabilities" button is pressed, AC climate entities automatically reload capabilities and rebuild fan mapping without requiring HA restart
+  - `TadoRefreshACCapabilitiesButton` now fires the signal after successful refresh
+  - `SIGNAL_AC_CAPABILITIES_UPDATED` constant added to `immediate_refresh_handler.py`
+
+- **AC Fan Mode — Removed Silent Fallback to Static Global Mapping** (TECH-4)
+  - `async_set_fan_mode()` no longer silently falls back to `HA_TO_TADO_FAN` global when per-zone mapping has no entry
+  - Now logs a warning and uses `AUTO` as explicit fallback, making mapping gaps visible in logs
+
+- **AC Temperature Default — Uses Capabilities Midpoint Instead of Hardcoded 24°C** (HIGH-4 / TECH-1)
+  - Default temperature when switching HVAC modes now uses `(min_temp + max_temp) / 2` from AC capabilities
+  - Affects `async_set_hvac_mode()` and `_async_set_ac_overlay()` fallback paths
+
+- **AC Optimistic State — Fan/Swing Modes Preserved During Update Cycle** (HIGH-1)
+  - `_set_optimistic_state()` now stores `fan_mode` and `swing_mode` in the optimistic state dict
+  - `update()` preserve block restores fan/swing from optimistic state, preventing UI flicker when API hasn't caught up
+
+- **AC Rollback — Swing Mode Included in HVAC Mode Change Rollback** (HIGH-2)
+  - `async_set_hvac_mode()` else branch now saves and restores `old_swing` on API failure
+
+- **AC Temperature Limits — Clamped to Hardware Capabilities Range** (HIGH-3)
+  - `_update_temp_limits()` clamps user-configured per-zone min/max to AC hardware capabilities
+  - User cannot set min lower than AC hardware minimum or max higher than AC hardware maximum
+
+- **AC Capabilities File — Home-Aware Path** (TECH-2)
+  - `TadoRefreshACCapabilitiesButton` now uses `get_data_file("ac_capabilities", home_id)` for correct per-home file path
+
+---
+
 ## [2.3.0] - 2026-02-25
 
 ### Features

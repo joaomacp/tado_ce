@@ -17,6 +17,9 @@ _LOGGER = logging.getLogger(__name__)
 # Signal name for notifying entities to update after zones.json refresh
 SIGNAL_ZONES_UPDATED = "tado_ce_zones_updated"
 
+# Signal name for notifying AC entities to reload capabilities after refresh
+SIGNAL_AC_CAPABILITIES_UPDATED = "tado_ce_ac_capabilities_updated"
+
 # Entity types that should trigger immediate refresh
 REFRESH_ENTITY_TYPES = {
     "climate",      # Temperature and HVAC mode changes

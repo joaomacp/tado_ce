@@ -67,10 +67,9 @@ class APICallTracker:
         self._last_cleanup_date = None
         self._initialized = False
         
-        # Ensure data directory exists
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        # Ensure history file parent exists (PR #132 - @hacker4257)
-        self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        # NOTE: Do NOT do blocking mkdir here — __init__ runs in the HA event loop.
+        # Directory creation is handled in _save_history_sync() and _save_history_async().
+        # (#127 fix: blocking mkdir in event loop can be interrupted before completion)
 
     def _load_history_sync(self) -> Dict:
         """Load call history from disk synchronously."""
@@ -121,10 +120,19 @@ class APICallTracker:
         return {}
     
     async def _save_history_async(self, data: Dict):
-        """Save call history to disk using native async I/O with atomic write."""
+        """Save call history to disk using native async I/O with atomic write.
+        
+        #127 fix: Use run_in_executor for mkdir to guarantee completion before
+        file open. aiofiles.os.makedirs uses thread pool which may have scheduling
+        delays, causing FileNotFoundError on the subsequent open call.
+        """
         try:
-            # Ensure directory exists (PR #132 - @hacker4257)
-            await aiofiles.os.makedirs(self.history_file.parent, exist_ok=True)
+            # Ensure directory exists — run_in_executor guarantees completion
+            # before next line, unlike aiofiles.os.makedirs which may be delayed
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.history_file.parent.mkdir(parents=True, exist_ok=True)
+            )
             
             # Write to temp file then atomic rename
             temp_path = self.history_file.with_suffix('.tmp')

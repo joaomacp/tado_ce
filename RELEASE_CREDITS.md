@@ -4,6 +4,19 @@ Community contributors who helped shape Tado CE through bug reports, feature req
 
 ---
 
+## v2.3.1 - AC Fan Mapping, Blocking I/O Fix & AC Audit
+
+### Bug Reports & Issue Reporters
+
+**[@BirbByte](https://github.com/BirbByte)** - [Issue #142](https://github.com/hiall-fyi/tado_ce/issues/142)
+- Reported AC 'High' fan speed still reverting to Auto on Mitsubishi units after v2.2.3
+- Provided detailed diagnostics confirming `FOUR` fan level not being sent correctly
+
+**[@slflowfoon](https://github.com/slflowfoon)** - [Issue #127](https://github.com/hiall-fyi/tado_ce/issues/127)
+- Reported blocking I/O warning in `api_call_tracker.py` on fresh install
+
+---
+
 ## v2.3.0 - Expanded Insights, Service Enhancement & Bug Fixes
 
 ### Bug Reports & Issue Reporters

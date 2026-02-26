@@ -229,5 +229,5 @@ These files persist across restarts and upgrades.
 
 ---
 
-**Version**: 2.3.0  
-**Last Updated**: 2026-02-25
+**Version**: 2.3.1  
+**Last Updated**: 2026-02-26

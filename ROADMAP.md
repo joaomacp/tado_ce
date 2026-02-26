@@ -6,7 +6,7 @@ For completed features, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## 🚧 In Progress
+## � In Progress 
 
 **Multi-Home Support** ([#110](https://github.com/hiall-fyi/tado_ce/issues/110) - @robvol87, [#145](https://github.com/hiall-fyi/tado_ce/issues/145) - @Blankf):
 
