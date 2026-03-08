@@ -581,7 +581,7 @@ class TadoCEOptionsFlow(config_entries.OptionsFlow):
                             EntitySelectorConfig(domain=["sensor", "weather"])
                         ),
                         vol.Optional('hot_water_timer_duration', default=options.get('hot_water_timer_duration', 60)): NumberSelector(
-                            NumberSelectorConfig(min=5, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
+                            NumberSelectorConfig(min=1, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min")
                         ),
                         # Smart Comfort defaults (Per-Zone can override)
                         vol.Optional('smart_comfort_mode', default=options.get('smart_comfort_mode', options.get('weather_compensation', 'none'))): SelectSelector(

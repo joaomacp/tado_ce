@@ -182,7 +182,7 @@
             },
             "data_description": {
               "outdoor_temp_entity": "Temperature sensor for weather compensation (e.g., weather.home)",
-              "hot_water_timer_duration": "Default duration when turning on hot water (5-1440 min)",
+              "hot_water_timer_duration": "Default duration when turning on hot water (1-1440 min)",
               "smart_comfort_mode": "Adjusts target temp based on outdoor conditions",
               "use_feels_like": "Use feels-like (apparent) temperature instead of actual",
               "mold_risk_window_type": "Window type for mold risk surface temperature calculation",

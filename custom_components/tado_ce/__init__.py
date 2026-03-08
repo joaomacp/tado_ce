@@ -2724,9 +2724,9 @@ async def _async_register_services(hass: HomeAssistant):
                     
                     duration_minutes = hours * 60 + minutes + (seconds // 60)
                 
-                # Validate final duration (5-1440 minutes)
-                if duration_minutes < 5:
-                    raise ValueError(f"Duration must be at least 5 minutes, got {duration_minutes}")
+                # Validate final duration (1-1440 minutes)
+                if duration_minutes < 1:
+                    raise ValueError(f"Duration must be at least 1 minute, got {duration_minutes}")
                 if duration_minutes > 1440:
                     raise ValueError(f"Duration must be at most 1440 minutes (24 hours), got {duration_minutes}")
                 
@@ -2824,9 +2824,9 @@ async def _async_register_services(hass: HomeAssistant):
                 
                 duration_minutes = hours * 60 + minutes + (seconds // 60)
             
-            # Validate final duration (5-1440 minutes)
-            if duration_minutes < 5:
-                raise ValueError(f"Duration must be at least 5 minutes, got {duration_minutes}")
+            # Validate final duration (1-1440 minutes)
+            if duration_minutes < 1:
+                raise ValueError(f"Duration must be at least 1 minute, got {duration_minutes}")
             if duration_minutes > 1440:
                 raise ValueError(f"Duration must be at most 1440 minutes (24 hours), got {duration_minutes}")
             

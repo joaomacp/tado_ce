@@ -47,7 +47,7 @@ MIN_INTERVAL_MINUTES = 1
 MAX_INTERVAL_MINUTES = 1440  # 24 hours
 MIN_RETENTION_DAYS = 0  # 0 = forever
 MAX_RETENTION_DAYS = 365
-MIN_TIMER_DURATION = 5  # minutes
+MIN_TIMER_DURATION = 1  # minutes
 MAX_TIMER_DURATION = 1440  # 24 hours
 MIN_SMART_COMFORT_HISTORY_DAYS = 1
 MAX_SMART_COMFORT_HISTORY_DAYS = 30
@@ -400,7 +400,7 @@ class ConfigurationManager:
         """Get hot water timer duration in minutes.
         
         Returns:
-            Timer duration in minutes (5-1440, default 60)
+            Timer duration in minutes (1-1440, default 60)
         """
         duration = self._get_option('hot_water_timer_duration', DEFAULT_HOT_WATER_TIMER_DURATION)
         # Convert float to int (HA options may return float)

@@ -1429,7 +1429,7 @@ data:
 
 **Configuration:**
 1. Go to Settings → Devices & Services → Tado CE → Configure
-2. Set "Hot Water Timer Duration" (5-1440 minutes)
+2. Set "Hot Water Timer Duration" (1-1440 minutes)
 
 #### 4. Temperature Offset
 
@@ -1501,7 +1501,7 @@ data:
 | Option | Default | Description |
 |--------|---------|-------------|
 | Refresh Debounce Delay | 15 s | Delay before refreshing after user actions (1-60 s) |
-| Hot Water Timer Duration | 60 min | Duration when HEAT mode is activated (5-1440 min) |
+| Hot Water Timer Duration | 60 min | Duration when HEAT mode is activated (1-1440 min) |
 | Enable Temperature Offset Attribute | Off | Adds `offset_celsius` to climate entities |
 
 ### Usage Scenarios
